@@ -210,6 +210,10 @@ table.rpt td.l,table.rpt th.l{text-align:left}
 table.rpt tr:nth-child(even) td{background:#f7fafc}
 table.rpt tr.subtotal td{font-weight:700;background:#dfeaf3 !important;border-top:1.5px solid var(--brand)}
 table.rpt tr.grandtotal td{font-weight:800;background:#c9dcec !important;border-top:2px solid var(--brand-dk);border-bottom:2px solid var(--brand-dk)}
+table.rpt tr>td.l:first-child,table.rpt tr>th.l:first-child{min-width:148px}
+table.rpt th.inper,table.rpt td.inper{background:#fff7e8}
+table.rpt tr.subtotal td.inper,table.rpt tr.grandtotal td.inper{background:#f0e2c4 !important}
+table.rpt th.inper{background:#8a5b00}
 table.rpt .pct{color:var(--warn);font-weight:600}
 .rpt-head{text-align:center;margin-bottom:12px}
 .rpt-head h3{margin:0;font-size:15px;color:var(--brand-dk)}
@@ -219,6 +223,8 @@ table.rpt .pct{color:var(--warn);font-weight:600}
 .note{font-size:11.5px;color:var(--ink-soft);background:#fbfaf5;border:1px solid #ece3c8;border-radius:6px;padding:8px 11px;margin-bottom:14px}
 .dlall{background:#f2faf6;border:1px solid #b8e0cb;border-radius:7px;padding:12px 15px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:15px}
 .dlall .txt{flex:1;min-width:200px} .dlall .txt b{color:var(--ok)}
+
+.dlall .asof{flex:1 1 100%;font-size:12.5px;font-weight:700;color:var(--ok)}
 .credit{text-align:center;font-size:11.5px;color:var(--ink-soft);padding:14px}
 .credit b{color:var(--ink)}
 .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--ink);color:#fff;padding:11px 20px;border-radius:7px;font-size:13px;opacity:0;pointer-events:none;transition:.25s;z-index:99}
@@ -234,16 +240,74 @@ table.rpt .pct{color:var(--warn);font-weight:600}
 .fmtable input{width:100%;border:1px solid var(--line);border-radius:4px;padding:4px 6px;font-size:12px;font-family:inherit}
 .fmtable input:focus{outline:2px solid var(--brand);border-color:var(--brand)}
 .fmwrap{max-height:calc(100vh - 360px);overflow:auto;border:1px solid var(--line-soft);border-radius:6px;margin-bottom:14px}
+/* ===================== MOBILE / TABLET LAYOUT ===================== */
+@supports(height:100dvh){body{height:100dvh}}
+.mobhint{display:none}
+@media(max-width:820px){
+  header.app{padding:9px 11px;gap:10px}
+  header.app h1{font-size:14.5px;line-height:1.25}
+  header.app p{font-size:10.5px}
+  header.app .burger{padding:7px 12px;font-size:19px;flex:0 0 auto}
+  header.app .hgroup{min-width:0}
+  nav.side{position:fixed;top:0;left:0;bottom:0;width:252px;max-width:84vw;z-index:120;
+           margin-left:0;transform:translateX(0);transition:transform .22s ease;
+           box-shadow:4px 0 22px rgba(10,30,50,.34);padding-top:6px}
+  nav.side.hidden{margin-left:0;transform:translateX(-102%);box-shadow:none}
+  nav.side .navitem{padding:13px 18px;font-size:14px}
+  #navscrim{position:fixed;inset:0;background:rgba(10,30,50,.45);z-index:110;display:none}
+  #navscrim.show{display:block}
+  main{padding:10px 10px 34px}
+  .panel .phead{padding:11px 12px}
+  .panel .pbody{padding:0 12px 13px}
+  .tabpanel{padding:11px 10px}
+  .dlall{padding:10px 11px;gap:8px}
+  .dlall .txt{display:none}
+  .dlall .btn{flex:1 1 46%;font-size:12px;padding:9px 6px}
+  .dlall #dl-bundle{display:none}
+  .actionbar .btn.xl{flex:1 1 100%}
+  .controls{gap:11px;margin-bottom:12px}
+  .ctrl{flex:1 1 100%;min-width:0}
+  .ctrl-date{flex:1 1 44%}
+  .ctrl[style]{margin-left:0 !important}
+  .ctrl select,.ctrl input{min-width:0;width:100%;font-size:15px;padding:10px 9px}
+  .multidd{min-width:0;width:100%}
+  .multibtn{padding:10px 9px;font-size:14px}
+  .multipanel{max-height:54vh}
+  .multipanel .mopt{padding:9px 6px;font-size:14px}
+  .ctrl .dlrow{flex-wrap:wrap}
+  .ctrl .dlrow .btn{flex:1 1 30%;padding:9px 8px}
+  .mobhint{display:block;font-size:11.5px;color:var(--ink-soft);margin:0 0 7px;font-style:italic}
+  .tablescroll{max-height:72dvh;-webkit-overflow-scrolling:touch}
+  .tablescroll[style]{max-height:72dvh !important}
+  table.rpt{font-size:11.5px}
+  table.rpt th,table.rpt td{padding:6px 7px;white-space:nowrap}
+  table.rpt tbody td:first-child{position:sticky;left:0;z-index:1;background:#fff;box-shadow:1px 0 0 #b9c6d0}
+  table.rpt tbody td:first-child,table.rpt thead tr:first-child th:first-child{width:124px;min-width:124px;white-space:normal;word-break:normal;overflow-wrap:break-word;line-height:1.3}
+  table.rpt tbody tr:nth-child(even) td:first-child{background:#f7fafc}
+  table.rpt thead tr:first-child th:first-child{position:sticky;left:0;z-index:3}
+  .rpt-head h3{font-size:13.5px}
+  .rpt-head .meta{font-size:11px}
+  .fmwrap{max-height:62dvh}
+  .credit{font-size:11px;padding:12px 6px}
+  .toast{left:10px;right:10px;transform:none;text-align:center;bottom:14px}
+}
+@media(max-width:430px){
+  header.app h1{font-size:13.5px}
+  header.app p{display:none}
+  table.rpt{font-size:11px}
+  table.rpt th,table.rpt td{padding:5px 6px}
+}
 </style>
 </head>
 <body>
 <header class="app">
   <button class="burger" id="burger" title="Show/hide report list">☰</button>
-  <div>
+  <div class="hgroup">
     <h1>Smart Meter All Status Report</h1>
     <p>Baroda O&amp;M Circle — Consumer Master vs MI Data comparison &amp; report generator</p>
   </div>
 </header>
+<div id="navscrim"></div>
 <div class="shell">
   <nav class="side" id="side">
     <div class="navtitle">REPORTS</div>
@@ -445,7 +509,13 @@ bindSlot('file-mt','mt','st-mt','slot-mt');
 
 /* ---- collapsible upload panel + burger nav ---- */
 $('uploadHead').addEventListener('click',()=>$('uploadPanel').classList.toggle('collapsed'));
-$('burger').addEventListener('click',()=>$('side').classList.toggle('hidden'));
+const isMobile=()=>window.matchMedia('(max-width:820px)').matches;
+function syncScrim(){const sc=$('navscrim');if(!sc)return;sc.classList.toggle('show',isMobile()&&!$('side').classList.contains('hidden'));}
+function closeNav(){$('side').classList.add('hidden');syncScrim();}
+$('burger').addEventListener('click',()=>{$('side').classList.toggle('hidden');syncScrim();});
+$('navscrim').addEventListener('click',closeNav);
+if(isMobile())$('side').classList.add('hidden');     // drawer starts closed on phones
+window.addEventListener('resize',()=>{if(!isMobile()){$('side').classList.remove('hidden');}syncScrim();});
 function setMini(){
   const parts=[];
   if(S['_name_cm'])parts.push('CM ✓'); if(S['_name_mi'])parts.push('MI ✓'); if(S['_name_mt'])parts.push('Meter Type ✓');
@@ -541,9 +611,15 @@ function replIn(rec,from,to){
    Each "row" carries a kind: 'data' | 'subtotal' | 'grand'. */
 
 function catCells(list,from,to){
+  /* rep  = smart meters installed in TOTAL (whole MI Data) -> Pending = Consumers - rep
+     repP = installed during the selected survey-date period (extra column only) */
+  const dated=!!(from||to);
+  const calc=cr=>{const tot=cr.length,rp=cr.filter(r=>r.replaced).length,
+                  rpP=dated?cr.filter(r=>replIn(r,from,to)).length:rp;
+                  return{tot,rep:rp,repP:rpP,pend:tot-rp,pct:pct(tot-rp,tot)};};
   const o={};
-  for(const c of CATS){const cr=list.filter(r=>r.cat===c);const tot=cr.length,rep=cr.filter(r=>replIn(r,from,to)).length;o[c]={tot,rep,pend:tot-rep,pct:pct(tot-rep,tot)};}
-  const tot=list.length,rep=list.filter(r=>replIn(r,from,to)).length;o['Total']={tot,rep,pend:tot-rep,pct:pct(tot-rep,tot)};
+  for(const c of CATS)o[c]=calc(list.filter(r=>r.cat===c));
+  o['Total']=calc(list);
   return o;
 }
 
@@ -562,7 +638,7 @@ function groupedCat(recs,divFilter,from,to,catList){
   // grand / circle total
   const all=divFilter==='ALL'?recs:recs.filter(r=>r.div===divFilter);
   rows.push({kind:divFilter==='ALL'?'grand':'subtotal',label:divFilter==='ALL'?'CIRCLE TOTAL':divFilter+' — Total',cells:catCells(all,from,to)});
-  return {rows,cats:catList};
+  return {rows,cats:catList,dated:!!(from||to)};
 }
 
 function buildR1(recs,divFilter,from,to){return groupedCat(recs,divFilter,from,to,CATS);}
@@ -603,7 +679,11 @@ function buildR4(recs,divFilter,from,to){
   const f=recs.filter(r=>r.load>10&&(r.cat==='LTMD'||r.cat==='NRGP+EVCS'));
   // reuse grouped but cats limited
   const cats=['LTMD','NRGP+EVCS'];
-  function cells(list){const o={};for(const c of cats){const cr=list.filter(r=>r.cat===c);const tot=cr.length,rep=cr.filter(r=>replIn(r,from,to)).length;o[c]={tot,rep,pend:tot-rep,pct:pct(tot-rep,tot)};}const tot=list.length,rep=list.filter(r=>replIn(r,from,to)).length;o['Total']={tot,rep,pend:tot-rep,pct:pct(tot-rep,tot)};return o;}
+  const dated=!!(from||to);
+  const calc=cr=>{const tot=cr.length,rp=cr.filter(r=>r.replaced).length,
+                  rpP=dated?cr.filter(r=>replIn(r,from,to)).length:rp;
+                  return{tot,rep:rp,repP:rpP,pend:tot-rp,pct:pct(tot-rp,tot)};};
+  function cells(list){const o={};for(const c of cats)o[c]=calc(list.filter(r=>r.cat===c));o['Total']=calc(list);return o;}
   const rows=[];const divs=divFilter==='ALL'?S.divs:[divFilter];
   for(const dv of divs){const dr=f.filter(r=>r.div===dv);if(dr.length===0)continue;
     const sdns=[...new Set(dr.map(r=>r.sdn))].sort();
@@ -612,15 +692,19 @@ function buildR4(recs,divFilter,from,to){
   }
   const all=divFilter==='ALL'?f:f.filter(r=>r.div===divFilter);
   rows.push({kind:divFilter==='ALL'?'grand':'subtotal',label:divFilter==='ALL'?'CIRCLE TOTAL':divFilter+' — Total',cells:cells(all)});
-  return {rows,cats};
+  return {rows,cats,dated};
 }
 
 /* R2 faulty — all categories shown at once (Nos/Replaced/Pending/%Pending per category),
    grouped subdivision -> division subtotal -> circle total. */
 function faultyCells(list,from,to){
+  const dated=!!(from||to);
+  const calc=cr=>{const nos=cr.length,rp=cr.filter(r=>r.replaced).length,
+                  rpP=dated?cr.filter(r=>replIn(r,from,to)).length:rp;
+                  return{nos,rep:rp,repP:rpP,pend:nos-rp,pct:pct(nos-rp,nos)};};
   const o={};
-  for(const c of CATS){const cr=list.filter(r=>r.cat===c);const nos=cr.length,rep=cr.filter(r=>replIn(r,from,to)).length;o[c]={nos,rep,pend:nos-rep,pct:pct(nos-rep,nos)};}
-  const nos=list.length,rep=list.filter(r=>replIn(r,from,to)).length;o['Total']={nos,rep,pend:nos-rep,pct:pct(nos-rep,nos)};
+  for(const c of CATS)o[c]=calc(list.filter(r=>r.cat===c));
+  o['Total']=calc(list);
   return o;
 }
 function buildR2(recs,divFilter,from,to){
@@ -633,7 +717,7 @@ function buildR2(recs,divFilter,from,to){
   }
   const all=divFilter==='ALL'?f:f.filter(r=>eqDiv(r.div,divFilter));
   rows.push({kind:divFilter==='ALL'?'grand':'subtotal',label:divFilter==='ALL'?'CIRCLE TOTAL':divFilter+' — Total',cells:faultyCells(all,from,to)});
-  return {rows,hasData:f.length>0};
+  return {rows,hasData:f.length>0,dated:!!(from||to)};
 }
 
 /* R5 village-wise — hide unknowns */
@@ -758,12 +842,12 @@ function renderNav(){
     const el=document.createElement('div');
     el.className='navitem'+(v.id===activeView?' active':'');
     el.innerHTML=`<span class="n">${i+1}</span><span>${v.name}</span>`;
-    el.onclick=()=>{activeView=v.id;renderNav();renderView();};
+    el.onclick=()=>{activeView=v.id;renderNav();renderView();if(typeof isMobile==='function'&&isMobile()){closeNav();const m=document.querySelector('main');if(m)m.scrollTop=0;}};
     nl.appendChild(el);
   });
 }
 function ctrlSelect(label,opts,val,onCh){const w=document.createElement('div');w.className='ctrl';const l=document.createElement('label');l.textContent=label;w.appendChild(l);const s=document.createElement('select');opts.forEach(o=>{const op=document.createElement('option');op.value=o.v;op.textContent=o.t;if(o.v===val)op.selected=true;s.appendChild(op);});s.onchange=()=>onCh(s.value);w.appendChild(s);return w;}
-function ctrlDate(label,val,onCh){const w=document.createElement('div');w.className='ctrl';const l=document.createElement('label');l.textContent=label;w.appendChild(l);const i=document.createElement('input');i.type='date';if(val)i.value=val;i.onchange=()=>onCh(i.value);w.appendChild(i);return w;}
+function ctrlDate(label,val,onCh){const w=document.createElement('div');w.className='ctrl ctrl-date';const l=document.createElement('label');l.textContent=label;w.appendChild(l);const i=document.createElement('input');i.type='date';if(val)i.value=val;i.onchange=()=>onCh(i.value);w.appendChild(i);return w;}
 /* multi-select dropdown: a button showing the current selection; click to open a checkbox panel */
 function ctrlMulti(label,opts,sel,onCh,allLabel){
   const w=document.createElement('div');w.className='ctrl';
@@ -804,12 +888,15 @@ function renderView(){
   const bpl=document.createElement('button');bpl.className='btn ghost sm';bpl.textContent=activeView==='r7'?'Installed list':'Pending list';bpl.title=activeView==='r7'?'Download installed consumers (Consumer Master format) for the selected date range':'Download pending consumers (Consumer Master format) for the current selection';bpl.onclick=()=>exportPendingList(activeView);
   row.appendChild(bx);row.appendChild(bp);row.appendChild(bpl);dl.appendChild(row);ctrls.appendChild(dl);
   p.appendChild(ctrls);
+  const hint=document.createElement('div');hint.className='mobhint';
+  hint.textContent='Tip: swipe the table sideways to see all columns. The first column stays fixed.';
+  p.appendChild(hint);
   const holder=document.createElement('div');
   const from=f.from?new Date(f.from):null,to=f.to?new Date(f.to):null;
   holder.innerHTML=renderReportHTML(activeView,f,from,to);
   p.appendChild(holder);
 }
-function dateNote(from,to){if(!from&&!to)return'';const ds=from?from.toLocaleDateString('en-GB'):'start',de=to?to.toLocaleDateString('en-GB'):'today';return`<div class="note">Date filter active: a connection counts as <b>replaced</b> only if its MI survey date is between <b>${ds}</b> and <b>${de}</b>. Replaced meters without a survey date are treated as pending under this filter.</div>`;}
+function dateNote(from,to){if(!from&&!to)return'';const ds=from?from.toLocaleDateString('en-GB'):'start',de=to?to.toLocaleDateString('en-GB'):'today';return`<div class="note">Date filter active (<b>${ds}</b> to <b>${de}</b>). <b>SM Installed (Total)</b> and <b>Pending</b> always count the whole MI Data, so Pending stays correct. The extra <b>Installed in Selected Period</b> column counts only meters whose MI survey date falls in this range; meters with no survey date in MI Data cannot appear in that column.</div>`;}
 function scopeSub(f){const b=[];b.push(f.div==='ALL'?'All Divisions':f.div);if(f.slab&&f.slab!=='ALL')b.push(f.slab.replace(/^\d+\.\s*/,''));if(f.fcats&&f.fcats.length)b.push('Cat: '+f.fcats.join(', '));return b.join(' · ');}
 
 
@@ -825,18 +912,19 @@ function renderReportHTML(id,f,from,to){
   if(id==='r8')return r8html(f);
 }
 const cls=k=>k==='grand'?'grandtotal':k==='subtotal'?'subtotal':'';
-function catCol(c){return`<th class="grp" colspan="4">${c}</th>`;}
-function catSubh(){return'<th>Consumers</th><th>SM Installed</th><th>Pending</th><th>% Pending</th>';}
-function cellHTML(o){return`<td>${o.tot}</td><td>${o.rep}</td><td>${o.pend}</td><td class="pct">${fpct(o.pct)}</td>`;}
+function catCol(c,dated){return`<th class="grp" colspan="${dated?5:4}">${c}</th>`;}
+function catSubh(dated){return'<th>Consumers</th><th>SM Installed<br>(Total)</th>'+(dated?'<th class="inper">Installed in<br>Selected Period</th>':'')+'<th>Pending</th><th>% Pending</th>';}
+function cellHTML(o,dated){return`<td>${o.tot}</td><td>${o.rep}</td>`+(dated?`<td class="inper">${o.repP}</td>`:'')+`<td>${o.pend}</td><td class="pct">${fpct(o.pct)}</td>`;}
 
 function groupedCatHTML(title,sub,data,from,to){
   let h=reportHeading(title,sub)+dateNote(from,to);
   h+='<div class="tablescroll"><table class="rpt"><thead>';
-  h+='<tr><th class="l" rowspan="2">Sub-division</th>'+data.cats.map(catCol).join('')+'<th class="grp" colspan="4">Total</th></tr>';
-  h+='<tr>'+data.cats.map(catSubh).join('')+catSubh()+'</tr></thead><tbody>';
+  const dt=!!data.dated;
+  h+='<tr><th class="l" rowspan="2">Sub-division</th>'+data.cats.map(c=>catCol(c,dt)).join('')+`<th class="grp" colspan="${dt?5:4}">Total</th></tr>`;
+  h+='<tr>'+data.cats.map(()=>catSubh(dt)).join('')+catSubh(dt)+'</tr></thead><tbody>';
   data.rows.forEach(r=>{
     h+=`<tr class="${cls(r.kind)}"><td class="l">${r.label}</td>`;
-    [...data.cats,'Total'].forEach(c=>h+=cellHTML(r.cells[c]));
+    [...data.cats,'Total'].forEach(c=>h+=cellHTML(r.cells[c],dt));
     h+='</tr>';
   });
   h+='</tbody></table></div>';return h;
@@ -844,17 +932,18 @@ function groupedCatHTML(title,sub,data,from,to){
 function r1html(f,from,to){return groupedCatHTML('Sub-division wise & Category wise — Consumers vs Smart Meters Installed',scopeSub(f),buildR1(S.recs,f.div,from,to),from,to);}
 function r4html(f,from,to){const d=buildR4(S.recs,f.div,from,to);if(d.rows.every(r=>r.cells.Total.tot===0))return reportHeading('LTMD > 10 KW & NRGP+EVCS > 10 KW — Sub-division wise',scopeSub(f)+' · Contract Load > 10 KW')+'<div class="empty">No connections with contract load > 10 KW in this scope.</div>';return groupedCatHTML('LTMD > 10 KW & NRGP+EVCS > 10 KW — Sub-division wise',scopeSub(f)+' · Contract Load > 10 KW',d,from,to);}
 
-function faultyCol(c){return`<th class="grp" colspan="4">${c}</th>`;}
-function faultySubh(){return'<th>Faulty Nos</th><th>Replaced</th><th>Pending</th><th>% Pending</th>';}
-function faultyCellHTML(o){return`<td>${o.nos}</td><td>${o.rep}</td><td>${o.pend}</td><td class="pct">${fpct(o.pct)}</td>`;}
+function faultyCol(c,dated){return`<th class="grp" colspan="${dated?5:4}">${c}</th>`;}
+function faultySubh(dated){return'<th>Faulty Nos</th><th>Replaced<br>(Total)</th>'+(dated?'<th class="inper">Replaced in<br>Selected Period</th>':'')+'<th>Pending</th><th>% Pending</th>';}
+function faultyCellHTML(o,dated){return`<td>${o.nos}</td><td>${o.rep}</td>`+(dated?`<td class="inper">${o.repP}</td>`:'')+`<td>${o.pend}</td><td class="pct">${fpct(o.pct)}</td>`;}
 function r2html(f,from,to){
   const d=buildR2(S.recs,f.div,from,to);
   let h=reportHeading('Faulty Meter Replacement — Sub-division wise (all categories)',scopeSub(f)+' · Meter Status = F')+dateNote(from,to);
   if(!d.hasData)return h+'<div class="empty">No faulty (F) meters found for this scope.</div>';
   h+='<div class="tablescroll"><table class="rpt"><thead>';
-  h+='<tr><th class="l" rowspan="2">Sub-division</th>'+CATS.map(faultyCol).join('')+'<th class="grp" colspan="4">Total Faulty</th></tr>';
-  h+='<tr>'+CATS.map(faultySubh).join('')+faultySubh()+'</tr></thead><tbody>';
-  d.rows.forEach(r=>{h+=`<tr class="${cls(r.kind)}"><td class="l">${r.label}</td>`;[...CATS,'Total'].forEach(c=>h+=faultyCellHTML(r.cells[c]));h+='</tr>';});
+  const dt=!!d.dated;
+  h+='<tr><th class="l" rowspan="2">Sub-division</th>'+CATS.map(c=>faultyCol(c,dt)).join('')+`<th class="grp" colspan="${dt?5:4}">Total Faulty</th></tr>`;
+  h+='<tr>'+CATS.map(()=>faultySubh(dt)).join('')+faultySubh(dt)+'</tr></thead><tbody>';
+  d.rows.forEach(r=>{h+=`<tr class="${cls(r.kind)}"><td class="l">${r.label}</td>`;[...CATS,'Total'].forEach(c=>h+=faultyCellHTML(r.cells[c],dt));h+='</tr>';});
   h+='</tbody></table></div>';
   return h;
 }
@@ -958,21 +1047,29 @@ function reportAOA(id){
 }
 
 function aoaGroupedCat(title,sub,data){
+  const dt=!!data.dated,W=dt?5:4;
+  const sub2=dt?['Consumers','SM Installed (Total)','Installed in Selected Period','Pending','% Pending']
+               :['Consumers','SM Installed','Pending','% Pending'];
   const h1=['Sub-division'],h2=[''];
-  [...data.cats,'Total'].forEach(c=>{h1.push(c,'','','');h2.push('Consumers','SM Installed','Pending','% Pending');});
-  const body=data.rows.map(r=>{const c=[r.label];[...data.cats,'Total'].forEach(k=>{const o=r.cells[k];c.push(o.tot,o.rep,o.pend,P(o.pct));});return{cells:c,kind:r.kind};});
+  [...data.cats,'Total'].forEach(c=>{h1.push(c);for(let i=1;i<W;i++)h1.push('');sub2.forEach(x=>h2.push(x));});
+  const body=data.rows.map(r=>{const c=[r.label];[...data.cats,'Total'].forEach(k=>{const o=r.cells[k];
+    if(dt)c.push(o.tot,o.rep,o.repP,o.pend,P(o.pct));else c.push(o.tot,o.rep,o.pend,P(o.pct));});return{cells:c,kind:r.kind};});
   const ncol=h1.length;
   // grouped header merges (row index within header block = 0)
   const groupMerges=[];let c=1;const groups=[...data.cats,'Total'];
-  groups.forEach(()=>{groupMerges.push({r:0,c,span:4});c+=4;});
+  groups.forEach(()=>{groupMerges.push({r:0,c,span:W});c+=W;});
   return {title,sub,header:[h1,h2],body,ncol,groupMerges,firstColMergeV:true};
 }
 function aoaR2(f,from,to){
   const d=buildR2(S.recs,f.div,from,to);
+  const dt=!!d.dated,W=dt?5:4;
+  const sub2=dt?['Faulty Nos','Replaced (Total)','Replaced in Selected Period','Pending','% Pending']
+               :['Faulty Nos','Replaced','Pending','% Pending'];
   const h1=['Sub-division'],h2=[''];
-  [...CATS,'Total Faulty'].forEach(c=>{h1.push(c,'','','');h2.push('Faulty Nos','Replaced','Pending','% Pending');});
-  const body=d.rows.map(r=>{const c=[r.label];[...CATS,'Total'].forEach(k=>{const o=r.cells[k];c.push(o.nos,o.rep,o.pend,P(o.pct));});return{cells:c,kind:r.kind};});
-  const ncol=h1.length;const groupMerges=[];let cc=1;[...CATS,'Total'].forEach(()=>{groupMerges.push({r:0,c:cc,span:4});cc+=4;});
+  [...CATS,'Total Faulty'].forEach(c=>{h1.push(c);for(let i=1;i<W;i++)h1.push('');sub2.forEach(x=>h2.push(x));});
+  const body=d.rows.map(r=>{const c=[r.label];[...CATS,'Total'].forEach(k=>{const o=r.cells[k];
+    if(dt)c.push(o.nos,o.rep,o.repP,o.pend,P(o.pct));else c.push(o.nos,o.rep,o.pend,P(o.pct));});return{cells:c,kind:r.kind};});
+  const ncol=h1.length;const groupMerges=[];let cc=1;[...CATS,'Total'].forEach(()=>{groupMerges.push({r:0,c:cc,span:W});cc+=W;});
   return {title:'Faulty Meter Replacement — Sub-division wise (all categories)',sub:scopeSub(f)+' · Meter Status = F'+fdstr(from,to),header:[h1,h2],body,ncol,groupMerges,firstColMergeV:true};
 }
 function aoaR5(f){
@@ -1121,7 +1218,7 @@ function pendingRecs(id){
     if(f.div&&f.div!=='ALL')list=list.filter(r=>eqDiv(r.div,f.div));
     return list;
   }
-  let list=S.recs.filter(r=>!replIn(r,from,to)); // pending = not replaced (within date scope)
+  let list=S.recs.filter(r=>!r.replaced); // pending = not present in MI Data at all (date range never inflates this)
   if(f.div&&f.div!=='ALL')list=list.filter(r=>eqDiv(r.div,f.div));
   if(id==='r1'&&f.pcats&&f.pcats.length)list=list.filter(r=>f.pcats.includes(r.cat));   // category-wise pending list
   if(id==='r2')list=list.filter(r=>r.ms==='F');                       // faulty only
@@ -1602,8 +1699,10 @@ $('dl-sitedata').onclick=exportSiteData;
     $('gen').click();
     for(let i=0;i<600&&!S.built;i++)await new Promise(r=>setTimeout(r,100));
     if(S.built){
-      const t=document.querySelector('.dlall .txt');
-      if(t)t.insertAdjacentHTML('beforeend',' &nbsp;·&nbsp; <b>Data as of '+new Date(P.generated).toLocaleDateString('en-GB')+'</b>');
+      const bar=document.querySelector('.dlall');
+      if(bar){const as=document.createElement('div');as.className='asof';
+        as.textContent='Data as of '+new Date(P.generated).toLocaleDateString('en-GB');
+        bar.insertBefore(as,bar.firstChild);}
     }else{$('uploadPanel').style.display='';toast('Built-in data could not be loaded');}
   }catch(e){console.error(e);$('uploadPanel').style.display='';toast('Built-in data error: '+(e&&e.message||e));}
   finally{ov.remove();}
