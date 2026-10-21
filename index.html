@@ -237,7 +237,7 @@ table.rpt .pct{color:var(--warn);font-weight:600}
           <button class="btn primary" id="dl-all-xlsx">All reports · Excel</button>
           <button class="btn ghost" id="dl-all-pdf">All reports · PDF</button>
           <button class="btn ghost" id="dl-all-pptx">Division-wise · PowerPoint</button>
-          <button class="btn ghost" id="dl-sitedata" title="Create data.json - the compact file the website loads">Export Site Data (data.json)</button>
+          <button class="btn ghost" id="dl-sitedata" title="Create data.json.gz - the compact file the website loads">Export Site Data</button>
           <button class="btn ghost" id="dl-bundle" title="Export a compact bundle for publishing the online Report Viewer">Export Report Bundle (for web)</button>
         </div>
         <div class="tabpanel" id="tabpanel"></div>
@@ -1574,14 +1574,30 @@ async function exportSiteData(){
       fd[i]=idx('fdr',r.feeder); vc[i]=idx('vcd',r.vcode); mt[i]=idx('mt',r.mtype);
       ld[i]=r.load||0; ms[i]=idx('ms',r.ms); rp[i]=r.replaced?1:0; dt[i]=toSerialD(r.sdate);
     }
-    const payload={v:3,generated:new Date().toISOString(),n,
-      dicts:D, cn:allNum?cn.map(Number):cn, div:dv,sdn:sd,tar:tr,fdr:fd,vcd:vc,mt,load:ld,ms,rep:rp,sdate:dt,
+    /* Group consumers by village so every parallel array runs in long repeats, and store
+       consumer numbers as differences. Both make the gzipped file dramatically smaller. */
+    let cnOut=allNum?cn.map(Number):cn, delta=false;
+    const order=new Array(n);for(let i=0;i<n;i++)order[i]=i;
+    order.sort((a,b)=> vc[a]-vc[b] || (cnOut[a]<cnOut[b]?-1:cnOut[a]>cnOut[b]?1:0));
+    const pick=arr=>{const o=new Array(n);for(let i=0;i<n;i++)o[i]=arr[order[i]];return o;};
+    cnOut=pick(cnOut);
+    const DV=pick(dv),SD=pick(sd),TR=pick(tr),FD=pick(fd),VC=pick(vc),MT=pick(mt),
+          LD=pick(ld),MS=pick(ms),RP=pick(rp),DT=pick(dt);
+    if(allNum){const dl=new Array(n);dl[0]=cnOut[0];
+      for(let i=1;i<n;i++)dl[i]=cnOut[i]-cnOut[i-1];cnOut=dl;delta=true;}
+    const payload={v:4,generated:new Date().toISOString(),n,
+      dicts:D, cn:cnOut, cnDelta:delta, div:DV,sdn:SD,tar:TR,fdr:FD,vcd:VC,mt:MT,load:LD,ms:MS,rep:RP,sdate:DT,
       mtLoaded:!!S.mtLoaded, miCount:S.miSet?S.miSet.size:0, miDateCount:S.miDate?S.miDate.size:0};
-    const blob=new Blob([JSON.stringify(payload)],{type:'application/json'});
+    const json=JSON.stringify(payload);
+    let blob,fname;
+    try{
+      blob=await new Response(new Blob([json]).stream().pipeThrough(new CompressionStream('gzip'))).blob();
+      fname='data.json.gz';
+    }catch(_e){ blob=new Blob([json],{type:'application/json'}); fname='data.json'; }
     const url=URL.createObjectURL(blob);const a=document.createElement('a');
-    a.href=url;a.download='data.json';document.body.appendChild(a);a.click();a.remove();
+    a.href=url;a.download=fname;document.body.appendChild(a);a.click();a.remove();
     setTimeout(()=>URL.revokeObjectURL(url),4000);
-    toast('data.json saved ('+(blob.size/1048576).toFixed(1)+' MB before compression) — upload it next to index.html');
+    toast(fname+' saved — '+(blob.size/1048576).toFixed(1)+' MB (from '+(json.length/1048576).toFixed(0)+' MB). Upload it next to index.html');
   }catch(e){console.error(e);toast('Could not build data.json: '+(e&&e.message||e));}
 }
 if($('dl-sitedata'))$('dl-sitedata').onclick=exportSiteData;
@@ -1631,17 +1647,25 @@ function applySiteData(P){
     }
     if(location.protocol==='file:')return;          // no data.json over file:// — use the upload panel
     show('Loading reports…');
-    const res=await fetch('data.json',{cache:'no-cache'});
+    let res=await fetch('data.json.gz',{cache:'no-cache'});
+    if(!res.ok)res=await fetch('data.json',{cache:'no-cache'});
     if(!res.ok)throw new Error('HTTP '+res.status);
     const total=+(res.headers.get('Content-Length')||0);
-    if(res.body&&total>1048576){                    // progress while a large file downloads
+    let buf;
+    if(res.body&&total>524288){                     // progress while a large file downloads
       const rd=res.body.getReader();const parts=[];let got=0;
       for(;;){const{done,value}=await rd.read();if(done)break;parts.push(value);got+=value.length;
         show('Loading reports… '+Math.round(got*100/total)+'%');}
-      let len=0;parts.forEach(x=>len+=x.length);const buf=new Uint8Array(len);let o=0;
+      let len=0;parts.forEach(x=>len+=x.length);buf=new Uint8Array(len);let o=0;
       parts.forEach(x=>{buf.set(x,o);o+=x.length;});
-      P=JSON.parse(new TextDecoder().decode(buf));
-    }else P=await res.json();
+    }else buf=new Uint8Array(await res.arrayBuffer());
+    show('Reading data…');await new Promise(r=>setTimeout(r,20));
+    let txt;
+    if(buf[0]===0x1f&&buf[1]===0x8b){               // still gzipped (host served the .gz as-is)
+      txt=await new Response(new Blob([buf]).stream().pipeThrough(new DecompressionStream('gzip'))).text();
+    }else txt=new TextDecoder().decode(buf);        // host already decompressed it
+    P=JSON.parse(txt);
+    if(P.cnDelta){const c=P.cn;for(let i=1;i<c.length;i++)c[i]+=c[i-1];P.cnDelta=false;}
   }catch(e){
     if(window.__WEB_ONLY__){show('Report data could not be loaded.\n\n'+(e&&e.message||e)+'\n\nPlease refresh the page. If it keeps failing, tell the office that data.json is missing.');return;}
     return; }
