@@ -237,6 +237,7 @@ table.rpt .pct{color:var(--warn);font-weight:600}
           <button class="btn primary" id="dl-all-xlsx">All reports · Excel</button>
           <button class="btn ghost" id="dl-all-pdf">All reports · PDF</button>
           <button class="btn ghost" id="dl-all-pptx">Division-wise · PowerPoint</button>
+          <button class="btn ghost" id="btn-datacheck" title="Reconcile MI Data against the Consumer Master">MI Data check</button>
           <button class="btn ghost" id="dl-sitedata" title="Create data.json.gz - the compact file the website loads">Export Site Data</button>
           <button class="btn ghost" id="dl-bundle" title="Export a compact bundle for publishing the online Report Viewer">Export Report Bundle (for web)</button>
         </div>
@@ -274,7 +275,14 @@ function eqDiv(a,b){return norm(a).toUpperCase()===norm(b).toUpperCase();}
    Returns a valid Date at local midnight, or null. */
 function parseDate(v){
   if(v==null||v==='')return null;
-  if(v instanceof Date)return isNaN(v)?null:new Date(v.getFullYear(),v.getMonth(),v.getDate());
+  if(v instanceof Date){
+    if(isNaN(v))return null;
+    /* Some Excel readers return 23:59:5x of the PREVIOUS day for a date-only cell
+       (a rounding artifact, visible in time zones ahead of UTC). Snap that forward. */
+    let dd=v;
+    if(dd.getHours()===23&&dd.getMinutes()===59)dd=new Date(dd.getTime()+60000);
+    return new Date(dd.getFullYear(),dd.getMonth(),dd.getDate());
+  }
   if(typeof v==='number'){ // Excel serial (days since 1899-12-30)
     if(v<=0||v>60000)return null;
     const dt=new Date(Math.round((v-25569)*86400000));
@@ -289,6 +297,15 @@ function parseDate(v){
   if((m=s.match(/^(\d{1,2})[-\/](\d{1,2})[-\/](\d{2,4})$/))){let y=+m[3];if(y<100)y+=2000;const dt=new Date(y,+m[2]-1,+m[1]);return validDMY(dt,+m[1],+m[2],y)?dt:null;}
   const t=Date.parse(s);if(!isNaN(t)){const dt=new Date(t);return new Date(dt.getFullYear(),dt.getMonth(),dt.getDate());}
   return null;
+}
+/* A date-picker value is "yyyy-mm-dd". new Date("yyyy-mm-dd") parses it as UTC midnight,
+   which in India (UTC+5:30) lands 5.5 hours AFTER local midnight and silently drops the
+   first day of any range. Parse it as a LOCAL date instead. */
+function inputDate(v){
+  if(!v)return null;
+  const m=/^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(String(v).trim());
+  if(m)return new Date(+m[1],+m[2]-1,+m[3]);
+  const d=new Date(v);return isNaN(d)?null:new Date(d.getFullYear(),d.getMonth(),d.getDate());
 }
 function validDMY(dt,d,mo,y){return dt.getDate()===d&&dt.getMonth()===mo-1&&dt.getFullYear()===y;}
 
@@ -314,7 +331,7 @@ function readFile(file){return new Promise(async (res,rej)=>{
     try{
       const xlsxScript=(document.scripts&&document.scripts.length)?document.scripts[0].textContent:'';
       if(xlsxScript && xlsxScript.length>1000){
-        const workerCode = xlsxScript + `\nself.onmessage=function(ev){\n  try{\n    const ab=ev.data;\n    const wb=XLSX.read(new Uint8Array(ab),{type:'array',cellDates:true});\n    const name=wb.SheetNames[0];\n    const ws=wb.Sheets[name];\n    const rows=XLSX.utils.sheet_to_json(ws,{defval:'',raw:true});\n    self.postMessage({ok:true,name:name,rows:rows});\n  }catch(err){\n    self.postMessage({ok:false,error:String(err&&err.message||err)});\n  }\n};`;
+        const workerCode = xlsxScript + `\nself.onmessage=function(ev){\n  try{\n    const ab=ev.data;\n    const wb=XLSX.read(new Uint8Array(ab),{type:'array'});\n    const name=wb.SheetNames[0];\n    const ws=wb.Sheets[name];\n    const rows=XLSX.utils.sheet_to_json(ws,{defval:'',raw:true});\n    self.postMessage({ok:true,name:name,rows:rows});\n  }catch(err){\n    self.postMessage({ok:false,error:String(err&&err.message||err)});\n  }\n};`;
         url=URL.createObjectURL(new Blob([workerCode],{type:'application/javascript'}));
         worker=new Worker(url);
         worker.onmessage=ev=>{
@@ -334,7 +351,7 @@ function readFile(file){return new Promise(async (res,rej)=>{
           if(file.size > 5*1024*1024){rej(new Error('WORKER_BLOCKED'));return;}
           try{
             const fr=new FileReader();
-            fr.onload=e=>{try{res(XLSX.read(new Uint8Array(e.target.result),{type:'array',cellDates:true}));}catch(x){rej(x);}};
+            fr.onload=e=>{try{res(XLSX.read(new Uint8Array(e.target.result),{type:'array'}));}catch(x){rej(x);}};
             fr.onerror=()=>rej(new Error('FILEREAD'));
             fr.readAsArrayBuffer(file);
           }catch(x){rej(x);}
@@ -352,7 +369,7 @@ function readFile(file){return new Promise(async (res,rej)=>{
   // Compatibility fallback.
   try{
     const fr=new FileReader();
-    fr.onload=e=>{try{res(XLSX.read(new Uint8Array(e.target.result),{type:'array',cellDates:true}));}catch(x){rej(x);}};
+    fr.onload=e=>{try{res(XLSX.read(new Uint8Array(e.target.result),{type:'array'}));}catch(x){rej(x);}};
     fr.onerror=()=>rej(new Error('FILEREAD'));
     fr.readAsArrayBuffer(file);
   }catch(x){rej(x);}
@@ -413,15 +430,18 @@ $('gen').addEventListener('click',async()=>{
     const findCol=(cands)=>{for(const h of miHdr){const hn=norm(h).toLowerCase();for(const c of cands){if(hn===c)return h;}}return null;};
     const cnCol=findCol(['consumer number','consumer_no','consumer no'])||'Consumer Number';
     const sdCol=findCol(['survey date','survey_date','surveydate','date of survey'])||'Survey Date';
-    let noDateCount=0;
+    let noDateCount=0,miBlank=0;
+    S.miKey=new Set();                       // same numbers, leading zeros ignored
     for(const r of miRows){
-      const cn=norm(r[cnCol]);if(!cn)continue;
-      S.miSet.add(cn);
+      const cn=norm(r[cnCol]);if(!cn){miBlank++;continue;}
+      S.miSet.add(cn);S.miKey.add(cnKey(cn));
       const d=parseDate(r[sdCol]);
       if(d){ if(!S.miDate.has(cn))S.miDate.set(cn,d); }   // keep first valid date for a consumer
       else noDateCount++;
     }
     S.miNoDate=noDateCount;
+    S.miAudit={rows:miRows.length,blank:miBlank,unique:S.miSet.size,uniqueKey:S.miKey.size,
+               cnCol,sdCol,noDate:noDateCount};
     /* Meter Type file (optional) */
     S.mtMap=null;S.mtLoaded=false;S.mtTypes=[];
     if(S['_wb_mt']){
@@ -449,6 +469,23 @@ $('gen').addEventListener('click',async()=>{
         replaced:S.miSet.has(cn),sdate:S.miDate.get(cn)||null,mtype:(S.mtMap?(S.mtMap.get(cnKey(cn))||MT_NA):MT_NA),raw:r});
     }
     S.recs=recs;
+    /* ---- reconciliation: which MI rows found a consumer, and which did not ---- */
+    {
+      const cmExact=new Set(),cmKey=new Set();
+      for(const r of recs){cmExact.add(r.cn);cmKey.add(cnKey(r.cn));}
+      let matched=0,byKeyOnly=0,unmatched=0;const samples=[];
+      for(const cn of S.miSet){
+        if(cmExact.has(cn)){matched++;continue;}
+        if(cmKey.has(cnKey(cn))){byKeyOnly++;if(samples.length<12)samples.push(cn+'  — would match if leading zeros were ignored');continue;}
+        unmatched++;if(samples.length<12)samples.push(cn+'  — no such consumer in Consumer Master');
+      }
+      const A=S.miAudit||{};
+      A.cmTotal=recs.length; A.matched=matched; A.byKeyOnly=byKeyOnly; A.unmatched=unmatched;
+      A.duplicateRows=(A.rows||0)-(A.unique||0)-(A.blank||0); A.samples=samples;
+      A.markedReplaced=recs.filter(r=>r.replaced).length;
+      S.miAudit=A;
+      if(byKeyOnly+unmatched>0)console.warn('MI Data check',A);
+    }
     if(S.mtLoaded)S.mtTypes=mtypeOrder(recs.filter(r=>!r.replaced).map(r=>r.mtype));
 
     /* feeder reference: bundled master only */
@@ -771,7 +808,7 @@ function renderView(){
   hint.textContent='Tip: swipe the table sideways to see all columns. The first column stays fixed.';
   p.appendChild(hint);
   const holder=document.createElement('div');
-  const from=f.from?new Date(f.from):null,to=f.to?new Date(f.to):null;
+  const from=inputDate(f.from),to=inputDate(f.to);
   holder.innerHTML=renderReportHTML(activeView,f,from,to);
   p.appendChild(holder);
 }
@@ -915,7 +952,7 @@ function fdstr(from,to){if(!from&&!to)return'';return' · Survey '+(from?from.to
 
 function reportAOA(id){
   const f=F[id]||{div:'ALL',cat:'ALL',slab:'ALL',from:'',to:''};
-  const from=f.from?new Date(f.from):null,to=f.to?new Date(f.to):null;
+  const from=inputDate(f.from),to=inputDate(f.to);
   if(id==='r1')return aoaGroupedCat('Sub-division wise & Category wise — Consumers vs Smart Meters Installed',scopeSub(f)+fdstr(from,to),buildR1(S.recs,f.div,from,to));
   if(id==='r4')return aoaGroupedCat('LTMD > 10 KW & NRGP+EVCS > 10 KW — Sub-division wise',scopeSub(f)+' · Contract Load > 10 KW'+fdstr(from,to),buildR4(S.recs,f.div,from,to));
   if(id==='r2')return aoaR2(f,from,to);
@@ -1091,7 +1128,7 @@ async function exportAllXlsx(){
 /* ---- Pending list export: pending consumers in Consumer Master format ---- */
 function pendingRecs(id){
   const f=F[id]||{div:'ALL',cat:'ALL',slab:'ALL',from:'',to:'',fcats:[]};
-  const from=f.from?new Date(f.from):null,to=f.to?new Date(f.to):null;
+  const from=inputDate(f.from),to=inputDate(f.to);
   if(id==='r7'){ // installed within date range (not a pending report)
     let list=S.recs.filter(r=>installedIn(r,from,to));
     if(f.div&&f.div!=='ALL')list=list.filter(r=>eqDiv(r.div,f.div));
@@ -1462,8 +1499,8 @@ async function exportDivisionWisePptx(){
 
     // ===== Current filters =====
     const f = F['r1'] || {div:'ALL',cat:'ALL',slab:'ALL',from:'',to:''};
-    const from = f.from ? new Date(f.from) : null;
-    const to = f.to ? new Date(f.to) : null;
+    const from = inputDate(f.from);
+    const to = inputDate(f.to);
 
     // ===== Division-wise Overall slides =====
     for(const division of S.divs){
@@ -1476,8 +1513,8 @@ async function exportDivisionWisePptx(){
 
     // ===== Faulty Meter slides =====
     const f2 = F['r2'] || {div:'ALL',from:'',to:''};
-    const from2 = f2.from ? new Date(f2.from) : null;
-    const to2 = f2.to ? new Date(f2.to) : null;
+    const from2 = inputDate(f2.from);
+    const to2 = inputDate(f2.to);
     for(const division of S.divs){
       const faultyData = buildR2(S.recs, division, from2, to2);
       if(!faultyData || !faultyData.rows || faultyData.rows.length === 0) continue;
@@ -1490,8 +1527,8 @@ async function exportDivisionWisePptx(){
 
     // ===== LTMD / NRGP+EVCS >10 KW slides =====
     const f4 = F['r4'] || {div:'ALL',from:'',to:''};
-    const from4 = f4.from ? new Date(f4.from) : null;
-    const to4 = f4.to ? new Date(f4.to) : null;
+    const from4 = inputDate(f4.from);
+    const to4 = inputDate(f4.to);
     for(const division of S.divs){
       const ltmdData = buildR4(S.recs, division, from4, to4);
       if(!ltmdData || !ltmdData.rows || ltmdData.rows.length === 0) continue;
@@ -1601,6 +1638,38 @@ async function exportSiteData(){
   }catch(e){console.error(e);toast('Could not build data.json: '+(e&&e.message||e));}
 }
 if($('dl-sitedata'))$('dl-sitedata').onclick=exportSiteData;
+
+/* ===== MI Data check — explains any gap between MI Data and the report ===== */
+function miDataCheck(){
+  const A=S.miAudit;
+  if(!A){toast(S.prebuilt?'The website build has no MI Data to check — run this in the desktop tool':'Generate reports first');return;}
+  const nf=n=>(n||0).toLocaleString('en-IN');
+  const gap=A.byKeyOnly+A.unmatched;
+  let h='<div class="rpt-head"><h3>MI Data check</h3><div class="meta">Why the report total can differ from the MI Data row count</div></div>';
+  h+='<div class="tablescroll" style="max-height:none"><table class="rpt"><tbody>';
+  const row=(k,v,note)=>{h+=`<tr><td class="l">${k}</td><td style="font-weight:700">${v}</td><td class="l" style="color:var(--ink-soft)">${note||''}</td></tr>`;};
+  row('Rows in MI Data',nf(A.rows),'every row of the file');
+  row('&nbsp;&nbsp;blank consumer number',nf(A.blank),'skipped');
+  row('&nbsp;&nbsp;same consumer listed more than once',nf(A.duplicateRows),'counted once');
+  row('Distinct consumers in MI Data',nf(A.unique),'');
+  row('Matched to a consumer',nf(A.matched),'counted as SM Installed');
+  row('Not matched — leading zeros differ',nf(A.byKeyOnly),A.byKeyOnly?'<b style="color:var(--warn)">not counted — fixable</b>':'none');
+  row('Not matched — consumer absent',nf(A.unmatched),A.unmatched?'<b style="color:var(--warn)">not counted</b>':'none');
+  row('Shown in the report as SM Installed',nf(A.markedReplaced),'');
+  row('Consumers in Consumer Master',nf(A.cmTotal),'');
+  row('Columns read from MI Data',`${A.cnCol} / ${A.sdCol}`,'if these are the wrong columns, fix the headings');
+  row('Without a usable survey date',nf(A.noDate),'counted as installed, but cannot appear in date-range reports');
+  h+='</tbody></table></div>';
+  h+=`<div class="note" style="margin-top:12px">MI Data lists <b>${nf(A.unique)}</b> distinct consumers; the report shows <b>${nf(A.markedReplaced)}</b> installed. `+
+     (gap? `The difference of <b>${nf(gap)}</b> is explained above — those MI rows match no consumer in this Consumer Master.`
+         : 'The two agree exactly.')+'</div>';
+  if(A.samples&&A.samples.length)
+    h+='<div class="note" style="background:#fdf3f0;border-color:#e8c4bc"><b>Examples that did not match:</b><br>'+
+       A.samples.map(x=>'<code>'+x+'</code>').join('<br>')+'</div>';
+  const p=$('tabpanel');p.innerHTML=h;$('report-area').style.display='block';
+  p.scrollIntoView({behavior:'smooth',block:'start'});
+}
+if($('btn-datacheck'))$('btn-datacheck').onclick=miDataCheck;
 
 /* Build S.recs straight from the compact file — no Excel parsing, no re-derivation. */
 function applySiteData(P){
