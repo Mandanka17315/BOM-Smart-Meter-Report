@@ -675,114 +675,78 @@ function replIn(rec,from,to){
    division subtotal, next division, ... finally a CIRCLE TOTAL.
    Each "row" carries a kind: 'data' | 'subtotal' | 'grand'. */
 
-function catCells(list,from,to){
-  /* rep  = smart meters installed in TOTAL (whole MI Data) -> Pending = Consumers - rep
-     repP = installed during the selected survey-date period (extra column only) */
-  const dated=!!(from||to);
-  const calc=cr=>{const tot=cr.length,rp=cr.filter(r=>r.replaced).length,
-                  rpP=dated?cr.filter(r=>replIn(r,from,to)).length:rp;
-                  return{tot,rep:rp,repP:rpP,pend:tot-rp,pct:pct(tot-rp,tot)};};
-  const o={};
-  for(const c of CATS)o[c]=calc(list.filter(r=>r.cat===c));
-  o['Total']=calc(list);
-  return o;
+/* ================= FAST REPORT ENGINE =================
+   Every grouped report is counted in ONE pass over the consumers: each consumer adds to the
+   counters of its sub division; division and circle totals are sums of those counters.
+   (The earlier version re-filtered the full list for every row and column, which froze the
+   page on lakhs of consumers.) Output shape is unchanged. */
+function dateWin(from,to){
+  const f=from?from.getTime():null;let t=null;
+  if(to){const t2=new Date(to);t2.setHours(23,59,59,999);t=t2.getTime();}
+  return r=>{if(!r.replaced)return false;if(f===null&&t===null)return true;const d=r.sdate;if(!d)return false;const ms=d.getTime();return (f===null||ms>=f)&&(t===null||ms<=t);};
 }
-
-/* generic grouped builder for category-style reports (R1, R4) */
+function aggGroup(recs,divFilter,pass,add,fin){
+  const want=divFilter==='ALL'?null:norm(divFilter).toUpperCase();
+  const byDiv=new Map(),du=new Map();
+  for(let i=0;i<recs.length;i++){const r=recs[i];
+    if(!pass(r))continue;
+    let d=du.get(r.div);if(d===undefined){d=norm(r.div).toUpperCase();du.set(r.div,d);}
+    if(want!==null&&d!==want)continue;
+    let m=byDiv.get(d);if(!m){m=new Map();byDiv.set(d,m);}
+    let a=m.get(r.sdn);if(!a){a=Object.create(null);m.set(r.sdn,a);}
+    add(a,r);
+  }
+  const sum=list=>{const o=Object.create(null);for(const a of list)for(const k in a)o[k]=(o[k]||0)+a[k];return o;};
+  const rows=[],done=new Set();
+  const divs=divFilter==='ALL'?S.divs:[divFilter];
+  for(const dv of divs){const key=norm(dv).toUpperCase();if(done.has(key))continue;done.add(key);
+    const m=byDiv.get(key);if(!m||!m.size)continue;
+    for(const sdn of [...m.keys()].sort())rows.push({kind:'data',label:sdn,cells:fin(m.get(sdn))});
+    if(divFilter==='ALL')rows.push({kind:'subtotal',label:dv+' — Total',cells:fin(sum([...m.values()]))});
+  }
+  const all=[];for(const m of byDiv.values())for(const a of m.values())all.push(a);
+  const g=sum(all);
+  rows.push({kind:divFilter==='ALL'?'grand':'subtotal',label:divFilter==='ALL'?'CIRCLE TOTAL':divFilter+' — Total',cells:fin(g)});
+  return {rows,g};
+}
+const inc=(a,k)=>{a[k]=(a[k]||0)+1;};
+/* counters: <cat>\u0001t total, \u0001r installed, \u0001p installed in period */
+function catAgg(recs,divFilter,from,to,cats,pass,totName){
+  const dated=!!(from||to),inP=dateWin(from,to);
+  const add=(a,r)=>{for(const c of [r.cat,'Total']){inc(a,c+'\u0001t');if(r.replaced)inc(a,c+'\u0001r');if(dated&&inP(r))inc(a,c+'\u0001p');}};
+  const fin=a=>{const o={};for(const c of [...cats,'Total']){const tot=a[c+'\u0001t']||0,rp=a[c+'\u0001r']||0,rpP=dated?(a[c+'\u0001p']||0):rp;
+      const x={rep:rp,repP:rpP,pend:tot-rp,pct:pct(tot-rp,tot)};x[totName]=tot;o[c]=x;}return o;};
+  return aggGroup(recs,divFilter,pass,add,fin);
+}
 function groupedCat(recs,divFilter,from,to,catList){
-  const rows=[];
-  const divs = divFilter==='ALL' ? S.divs : [divFilter];
-  for(const dv of divs){
-    const dr=recs.filter(r=>r.div===dv);if(dr.length===0)continue;
-    const sdns=[...new Set(dr.map(r=>r.sdn))].sort();
-    for(const sdn of sdns){
-      rows.push({kind:'data',label:sdn,cells:catCells(dr.filter(r=>r.sdn===sdn),from,to)});
-    }
-    if(divFilter==='ALL') rows.push({kind:'subtotal',label:dv+' — Total',cells:catCells(dr,from,to)});
-  }
-  // grand / circle total
-  const all=divFilter==='ALL'?recs:recs.filter(r=>r.div===divFilter);
-  rows.push({kind:divFilter==='ALL'?'grand':'subtotal',label:divFilter==='ALL'?'CIRCLE TOTAL':divFilter+' — Total',cells:catCells(all,from,to)});
-  return {rows,cats:catList,dated:!!(from||to)};
+  const R=catAgg(recs,divFilter,from,to,catList,()=>true,'tot');
+  return {rows:R.rows,cats:catList,dated:!!(from||to)};
 }
-
 function buildR1(recs,divFilter,from,to){return groupedCat(recs,divFilter,from,to,CATS);}
-
-/* R7 — Smart meters INSTALLED within a date range.
-   Counts consumers whose MI survey date falls in [from,to]. Grouped
-   subdivision -> division subtotal -> circle total, with category columns. */
-function installedCells(list,from,to){
-  const o={};
-  for(const c of CATS){o[c]=list.filter(r=>r.cat===c&&installedIn(r,from,to)).length;}
-  o['Total']=list.filter(r=>installedIn(r,from,to)).length;
-  return o;
-}
-function installedIn(rec,from,to){
-  if(!rec.replaced)return false;
-  if(!from&&!to)return true;          // no date filter -> count every installed meter (matches Overall)
-  const d=rec.sdate;
-  if(!d)return false;                 // date filter active but this record has no survey date
-  if(from&&d<from)return false;
-  if(to){const t2=new Date(to);t2.setHours(23,59,59,999);if(d>t2)return false;}
-  return true;
-}
-function buildR7(recs,divFilter,from,to){
-  const rows=[];const divs=divFilter==='ALL'?S.divs:[divFilter];
-  for(const dv of divs){
-    const dr=recs.filter(r=>eqDiv(r.div,dv));if(dr.length===0)continue;
-    const sdns=[...new Set(dr.map(r=>r.sdn))].sort();
-    for(const sdn of sdns)rows.push({kind:'data',label:sdn,cells:installedCells(dr.filter(r=>r.sdn===sdn),from,to)});
-    if(divFilter==='ALL')rows.push({kind:'subtotal',label:dv+' — Total',cells:installedCells(dr,from,to)});
-  }
-  const all=divFilter==='ALL'?recs:recs.filter(r=>eqDiv(r.div,divFilter));
-  rows.push({kind:divFilter==='ALL'?'grand':'subtotal',label:divFilter==='ALL'?'CIRCLE TOTAL':divFilter+' — Total',cells:installedCells(all,from,to)});
-  const grand=installedCells(all,from,to)['Total'];
-  return {rows,grand};
-}
-
 function buildR4(recs,divFilter,from,to){
-  const f=recs.filter(r=>r.load>10&&(r.cat==='LTMD'||r.cat==='NRGP+EVCS'));
-  // reuse grouped but cats limited
   const cats=['LTMD','NRGP+EVCS'];
-  const dated=!!(from||to);
-  const calc=cr=>{const tot=cr.length,rp=cr.filter(r=>r.replaced).length,
-                  rpP=dated?cr.filter(r=>replIn(r,from,to)).length:rp;
-                  return{tot,rep:rp,repP:rpP,pend:tot-rp,pct:pct(tot-rp,tot)};};
-  function cells(list){const o={};for(const c of cats)o[c]=calc(list.filter(r=>r.cat===c));o['Total']=calc(list);return o;}
-  const rows=[];const divs=divFilter==='ALL'?S.divs:[divFilter];
-  for(const dv of divs){const dr=f.filter(r=>r.div===dv);if(dr.length===0)continue;
-    const sdns=[...new Set(dr.map(r=>r.sdn))].sort();
-    for(const sdn of sdns)rows.push({kind:'data',label:sdn,cells:cells(dr.filter(r=>r.sdn===sdn))});
-    if(divFilter==='ALL')rows.push({kind:'subtotal',label:dv+' — Total',cells:cells(dr)});
-  }
-  const all=divFilter==='ALL'?f:f.filter(r=>r.div===divFilter);
-  rows.push({kind:divFilter==='ALL'?'grand':'subtotal',label:divFilter==='ALL'?'CIRCLE TOTAL':divFilter+' — Total',cells:cells(all)});
-  return {rows,cats,dated};
-}
-
-/* R2 faulty — all categories shown at once (Nos/Replaced/Pending/%Pending per category),
-   grouped subdivision -> division subtotal -> circle total. */
-function faultyCells(list,from,to){
-  const dated=!!(from||to);
-  const calc=cr=>{const nos=cr.length,rp=cr.filter(r=>r.replaced).length,
-                  rpP=dated?cr.filter(r=>replIn(r,from,to)).length:rp;
-                  return{nos,rep:rp,repP:rpP,pend:nos-rp,pct:pct(nos-rp,nos)};};
-  const o={};
-  for(const c of CATS)o[c]=calc(list.filter(r=>r.cat===c));
-  o['Total']=calc(list);
-  return o;
+  const R=catAgg(recs,divFilter,from,to,cats,r=>r.load>10&&(r.cat==='LTMD'||r.cat==='NRGP+EVCS'),'tot');
+  return {rows:R.rows,cats,dated:!!(from||to)};
 }
 function buildR2(recs,divFilter,from,to){
-  const f=recs.filter(r=>r.ms==='F');
-  const rows=[];const divs=divFilter==='ALL'?S.divs:[divFilter];
-  for(const dv of divs){const dr=f.filter(r=>eqDiv(r.div,dv));if(dr.length===0)continue;
-    const sdns=[...new Set(dr.map(r=>r.sdn))].sort();
-    for(const sdn of sdns)rows.push({kind:'data',label:sdn,cells:faultyCells(dr.filter(r=>r.sdn===sdn),from,to)});
-    if(divFilter==='ALL')rows.push({kind:'subtotal',label:dv+' — Total',cells:faultyCells(dr,from,to)});
-  }
-  const all=divFilter==='ALL'?f:f.filter(r=>eqDiv(r.div,divFilter));
-  rows.push({kind:divFilter==='ALL'?'grand':'subtotal',label:divFilter==='ALL'?'CIRCLE TOTAL':divFilter+' — Total',cells:faultyCells(all,from,to)});
-  return {rows,hasData:f.length>0,dated:!!(from||to)};
+  const R=catAgg(recs,divFilter,from,to,CATS,r=>r.ms==='F','nos');
+  return {rows:R.rows,hasData:recs.some(r=>r.ms==='F'),dated:!!(from||to)};
+}
+function installedIn(rec,from,to){return dateWin(from,to)(rec);}
+function buildR7(recs,divFilter,from,to){
+  const inP=dateWin(from,to);
+  const R=aggGroup(recs,divFilter,()=>true,(a,r)=>{if(inP(r)){inc(a,r.cat);inc(a,'Total');}},
+    a=>{const o={};for(const c of CATS)o[c]=a[c]||0;o['Total']=a['Total']||0;return o;});
+  return {rows:R.rows,grand:R.g['Total']||0};
+}
+function buildR8(recs,divFilter,cats,mts,gt10){
+  const cs=new Set(cats),ms=new Set(mts);
+  const R=aggGroup(recs,divFilter,r=>!r.replaced&&cs.has(r.cat)&&ms.has(r.mtype)&&(!gt10||r.load>10),
+    (a,r)=>{inc(a,r.cat+'\u0001'+r.mtype);inc(a,r.cat+'\u0001T');inc(a,'Total\u0001'+r.mtype);inc(a,'Total\u0001T');},
+    a=>{const o={};for(const c of [...cats,'Total']){o[c]={};for(const m of mts)o[c][m]=a[c+'\u0001'+m]||0;o[c]['Total']=a[c+'\u0001T']||0;}return o;});
+  const groups=cats.length>1?[...cats,'Total']:cats.slice();
+  const subs=mts.length>1?[...mts,'Total']:mts.slice();
+  return {rows:R.rows,groups,subs,grand:R.g['Total\u0001T']||0};
 }
 
 /* R5 village-wise — hide unknowns */
@@ -854,31 +818,6 @@ function r8Gt10(f){return f.rload==='GT10';}
 function r8CatBase(f){return r8Gt10(f)?['LTMD','NRGP+EVCS']:CATS;}
 function r8Cats(f){const b=r8CatBase(f);return (f.rcats&&f.rcats.length)?b.filter(c=>f.rcats.includes(c)):b.slice();}
 function r8Mts(f){return (f.rmts&&f.rmts.length)?S.mtTypes.filter(m=>f.rmts.includes(m)):S.mtTypes.slice();}
-function r8Cells(list,cats,mts){
-  const o={};
-  for(const c of [...cats,'Total']){
-    const cl=c==='Total'?list:list.filter(r=>r.cat===c);
-    o[c]={};
-    for(const m of mts)o[c][m]=cl.filter(r=>r.mtype===m).length;
-    o[c]['Total']=cl.length;
-  }
-  return o;
-}
-function buildR8(recs,divFilter,cats,mts,gt10){
-  const pend=recs.filter(r=>!r.replaced&&cats.includes(r.cat)&&mts.includes(r.mtype)&&(!gt10||r.load>10));
-  const rows=[];const divs=divFilter==='ALL'?S.divs:[divFilter];
-  for(const dv of divs){
-    const dr=pend.filter(r=>eqDiv(r.div,dv));if(dr.length===0)continue;
-    const sdns=[...new Set(dr.map(r=>r.sdn))].sort();
-    for(const sdn of sdns)rows.push({kind:'data',label:sdn,cells:r8Cells(dr.filter(r=>r.sdn===sdn),cats,mts)});
-    if(divFilter==='ALL')rows.push({kind:'subtotal',label:dv+' — Total',cells:r8Cells(dr,cats,mts)});
-  }
-  const all=divFilter==='ALL'?pend:pend.filter(r=>eqDiv(r.div,divFilter));
-  rows.push({kind:divFilter==='ALL'?'grand':'subtotal',label:divFilter==='ALL'?'CIRCLE TOTAL':divFilter+' — Total',cells:r8Cells(all,cats,mts)});
-  const groups=cats.length>1?[...cats,'Total']:cats.slice();
-  const subs=mts.length>1?[...mts,'Total']:mts.slice();
-  return {rows,groups,subs,grand:all.length};
-}
 function scopeSub8(f){
   const b=[f.div==='ALL'?'All Divisions':f.div];
   if(r8Gt10(f))b.push('LTMD & NRGP+EVCS > 10 KW only');
@@ -1326,7 +1265,7 @@ async function exportPendingList(id){
   if(list.length===0){toast('No '+word+' consumers for this selection');return;}
   let cols,val;
   if(S.prebuilt){            // website mode: the site carries only the report fields
-    cols=['CONSUMER_NO','DIVISION_NAME','SUBDIV_NAME','TARRIF','Category','CONTRACT_LOAD','METER_STATUS','FEEDER_CODE','Village Code','Meter Type'];
+    cols=['CONSUMER_NO','DIVISION_NAME','SUBDIV_NAME','TARRIF','Category','CONTRACT_LOAD','METER_STATUS','FEEDER_CODE','Village Code','Meter Type'].filter(c=>!(S.noLoad&&c==='CONTRACT_LOAD'));
     val=(r,c)=>({CONSUMER_NO:r.cn,DIVISION_NAME:r.div,SUBDIV_NAME:r.sdn,TARRIF:r.tarrif,Category:r.cat,
                  CONTRACT_LOAD:r.load,METER_STATUS:r.ms,FEEDER_CODE:r.feeder,'Village Code':r.vcode,'Meter Type':r.mtype}[c]);
   }else{
@@ -1856,120 +1795,237 @@ function applySiteData(P){
 /* ===== GOOGLE SHEETS MODE =====
    The page reads the three Google Sheets directly every time it opens, so the website never
    needs re-uploading - just update the sheets. Each sheet must be shared as
-   "Anyone with the link - Viewer". To use a different sheet, paste its id and gid below
-   (both are in the sheet's address: /spreadsheets/d/<id>/edit#gid=<gid>). */
+   "Anyone with the link - Viewer" and published (File > Share > Publish to web).
+   To use a different sheet, paste its id and gid below
+   (both are in the sheet's address: /spreadsheets/d/<id>/edit#gid=<gid>).
+
+   All downloading and number-crunching runs in a background worker, so the page never
+   freezes, and only a compact copy of the data (not every sheet row) is kept in memory. */
 const SHEETS={
   cm:{label:'Consumer Master', id:'10743lOZS2ZNIJCG6s9DTVwp5MpTgjMoWEQZjTi-ckPs', gid:'2091403989', required:true},
   mi:{label:'MI Data',         id:'1OqZMEIF0r0KHWIrOOu0fCSuKtTukdLO4h6ysFmXz-9s', gid:'2025670057', required:true},
   mt:{label:'Meter Type',      id:'1dfBhCEW3AXRAY8_j5rds7qRVmng7ic55Zd63Vdkfuxo', gid:'1284559740', required:false}
 };
 
-/* Small, fast CSV parser (handles quoted fields, commas and line breaks inside quotes).
-   Every value stays text, so consumer numbers are never turned into numbers or dates. */
-function parseCSV(text){
-  if(text.charCodeAt(0)===0xFEFF)text=text.slice(1);
-  const rows=[];let row=[],f='',i=0,q=false;const n=text.length;
-  while(i<n){
-    const c=text.charCodeAt(i);
-    if(q){
-      if(c===34){if(text.charCodeAt(i+1)===34){f+='"';i+=2;continue;}q=false;i++;continue;}
-      const j=text.indexOf('"',i);if(j<0){f+=text.slice(i);i=n;continue;}
-      f+=text.slice(i,j);i=j;continue;
+/* ---------- code that runs inside the worker ---------- */
+function W_main(){
+  const norm=v=>v==null?'':String(v).trim();
+  const MON3=['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'];
+  function validDMY(dt,d,mo,y){return dt.getDate()===d&&dt.getMonth()===mo-1&&dt.getFullYear()===y;}
+  const DCACHE=new Map();
+  /* date text -> local-midnight timestamp (ms), 0 if not a date. Cached: survey dates repeat a lot. */
+  function dateMs(s){
+    if(!s)return 0;let v=DCACHE.get(s);if(v!==undefined)return v;v=0;
+    let t=s.replace(/[ T]\d{1,2}:\d{2}.*$/,'').trim(),m,dt=null;
+    if((m=t.match(/^(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})$/))){dt=new Date(+m[1],+m[2]-1,+m[3]);if(!validDMY(dt,+m[3],+m[2],+m[1]))dt=null;}
+    else if((m=t.match(/^(\d{1,2})[-\/](\d{1,2})[-\/](\d{2,4})$/))){let y=+m[3];if(y<100)y+=2000;dt=new Date(y,+m[2]-1,+m[1]);if(!validDMY(dt,+m[1],+m[2],y))dt=null;}
+    else if((m=t.match(/^(\d{1,2})[-\/ ]([A-Za-z]{3})[A-Za-z]*[-\/ ,]*(\d{2,4})$/))){const mi=MON3.indexOf(m[2].toLowerCase());if(mi>=0){let y=+m[3];if(y<100)y+=2000;dt=new Date(y,mi,+m[1]);if(!validDMY(dt,+m[1],mi+1,y))dt=null;}}
+    else if(/^\d{5}(\.\d+)?$/.test(t)){const n=+t;if(n>0&&n<60000){const u=new Date(Math.round((n-25569)*86400000));dt=new Date(u.getUTCFullYear(),u.getUTCMonth(),u.getUTCDate());}}
+    else{const p=Date.parse(t);if(!isNaN(p)){const u=new Date(p);dt=new Date(u.getFullYear(),u.getMonth(),u.getDate());}}
+    if(dt&&!isNaN(dt))v=dt.getTime();
+    DCACHE.set(s,v);return v;
+  }
+  const cnKey=v=>{const t=norm(v);return /^\d+$/.test(t)?t.replace(/^0+(?=\d)/,''):t;};
+  const sdnKey=v=>String(v==null?'':v).toUpperCase().replace(/[^A-Z0-9()]+/g,' ').trim().replace(/\s+/g,' ');
+
+  /* CSV -> columns (arrays of text). Far lighter than one object per row. */
+  function parseCols(text){
+    if(text.charCodeAt(0)===0xFEFF)text=text.slice(1);
+    const n=text.length;let i=0,q=false,f='',col=0,row=0;let hdr=null,cols=[],first=[];
+    const put=v=>{if(row===0){first.push(v.trim());}else if(col<cols.length){cols[col].push(v);}col++;};
+    const endRow=()=>{
+      if(row===0){hdr=first;cols=hdr.map(()=>[]);}
+      else{ if(col<cols.length){for(let c=col;c<cols.length;c++)cols[c].push('');} }
+      row++;col=0;
+    };
+    while(i<n){
+      const c=text.charCodeAt(i);
+      if(q){if(c===34){if(text.charCodeAt(i+1)===34){f+='"';i+=2;continue;}q=false;i++;continue;}
+        const j=text.indexOf('"',i);if(j<0){f+=text.slice(i);i=n;continue;}f+=text.slice(i,j);i=j;continue;}
+      if(c===34){q=true;i++;continue;}
+      if(c===44){put(f);f='';i++;continue;}
+      if(c===10||c===13){put(f);f='';endRow();if(c===13&&text.charCodeAt(i+1)===10)i++;i++;continue;}
+      let j=i;while(j<n){const d=text.charCodeAt(j);if(d===44||d===10||d===13||d===34)break;j++;}
+      f+=text.slice(i,j);i=j;
     }
-    if(c===34){q=true;i++;continue;}
-    if(c===44){row.push(f);f='';i++;continue;}
-    if(c===10||c===13){row.push(f);f='';rows.push(row);row=[];if(c===13&&text.charCodeAt(i+1)===10)i++;i++;continue;}
-    /* plain run up to the next delimiter */
-    let j=i;while(j<n){const d=text.charCodeAt(j);if(d===44||d===10||d===13||d===34)break;j++;}
-    f+=text.slice(i,j);i=j;
+    if(f!==''||col>0){put(f);endRow();}
+    if(!hdr)return {hdr:[],cols:[],n:0};
+    return {hdr,cols,n:row-1};
   }
-  if(f!==''||row.length){row.push(f);rows.push(row);}
-  if(!rows.length)return [];
-  const hdr=rows[0].map(h=>String(h).trim());
-  const out=[];
-  for(let r=1;r<rows.length;r++){
-    const a=rows[r];if(a.length===1&&a[0]==='')continue;            // empty line
-    const o={};let any=false;
-    for(let k=0;k<hdr.length;k++){if(!hdr[k])continue;const v=a[k]==null?'':a[k].trim();o[hdr[k]]=v;if(v)any=true;}
-    if(any)out.push(o);
+  const findCol=(T,cands)=>{for(let k=0;k<T.hdr.length;k++){const h=norm(T.hdr[k]).toLowerCase();if(cands.includes(h))return k;}return -1;};
+
+  async function fetchText(k,cfg){
+    const urls=[
+      `https://docs.google.com/spreadsheets/d/${cfg.id}/pub?gid=${cfg.gid}&single=true&output=csv`,
+      `https://docs.google.com/spreadsheets/d/${cfg.id}/export?format=csv&gid=${cfg.gid}`,
+      `https://docs.google.com/spreadsheets/d/${cfg.id}/gviz/tq?tqx=out:csv&gid=${cfg.gid}`
+    ];
+    const tried=[];
+    for(const u of urls){
+      try{
+        const res=await fetch(u,{cache:'no-store',redirect:'follow'});
+        if(!res.ok)throw new Error('HTTP '+res.status);
+        const rd=res.body.getReader();const dec=new TextDecoder('utf-8');const parts=[];let got=0,last=0;
+        for(;;){const{done,value}=await rd.read();if(done)break;got+=value.length;parts.push(dec.decode(value,{stream:true}));
+          if(got-last>262144){last=got;postMessage({type:'progress',k,msg:(got/1048576).toFixed(1)+' MB downloaded'});}}
+        parts.push(dec.decode());const text=parts.join('');
+        if(/^\s*<(!doctype|html)/i.test(text.slice(0,200)))throw new Error('NOT_SHARED');
+        return text;
+      }catch(e){tried.push(u.split('/').slice(-1)[0].split('?')[0]+': '+(e&&e.message||e));}
+    }
+    const err=new Error(tried.join(' | '));err.tried=tried;throw err;
   }
-  return out;
+
+  onmessage=async ev=>{
+    const {sheets,sdnDiv,vDiv,fDiv,unk,mtNA}=ev.data;
+    const T={},errs={};
+    await Promise.all(Object.keys(sheets).map(async k=>{
+      try{
+        let text=await fetchText(k,sheets[k]);
+        postMessage({type:'progress',k,msg:'reading…'});
+        T[k]=parseCols(text);text=null;
+        postMessage({type:'progress',k,msg:'✓ '+T[k].n.toLocaleString('en-IN')+' rows'});
+      }catch(e){errs[k]=String(e&&e.message||e);postMessage({type:'progress',k,msg:'✗ could not load'});}
+    }));
+    for(const k of Object.keys(sheets))if(sheets[k].required&&(!T[k]||!T[k].n)){postMessage({type:'fail',errs});return;}
+    postMessage({type:'progress',k:'cm',msg:'matching consumers…'});
+
+    /* ---- MI Data ---- */
+    const M=T.mi;
+    const miCn=findCol(M,['consumer number','consumer_no','consumer no']);
+    const miSd=findCol(M,['survey date','survey_date','surveydate','date of survey']);
+    const miDate=new Map();const miKey=new Set();let miBlank=0,noDate=0;
+    if(miCn>=0){const C=M.cols[miCn],D=miSd>=0?M.cols[miSd]:null;
+      for(let i=0;i<M.n;i++){const cn=norm(C[i]);if(!cn){miBlank++;continue;}miKey.add(cnKey(cn));
+        const d=D?dateMs(norm(D[i])):0;
+        if(d){const old=miDate.get(cn);if(!old)miDate.set(cn,d);}
+        else{noDate++;if(!miDate.has(cn))miDate.set(cn,0);}
+      }}
+    T.mi=null;
+    /* ---- Meter Type ---- */
+    let mtMap=null;
+    if(T.mt&&T.mt.n){const X=T.mt;
+      const a=findCol(X,['consumer_no','consumer number','consumer no','consumerno']),b=findCol(X,['meter type','meter_type','metertype','type of meter']);
+      if(a>=0&&b>=0){mtMap=new Map();for(let i=0;i<X.n;i++){const k=cnKey(X.cols[a][i]);if(!k)continue;const t=norm(X.cols[b][i]).replace(/\s+/g,' ');if(t)mtMap.set(k,t);else if(!mtMap.has(k))mtMap.set(k,'');}}
+      T.mt=null;}
+    /* ---- Consumer Master ---- */
+    const X=T.cm;const col=c=>findCol(X,c);
+    const cC=col(['consumer_no','consumer number','consumer no']),cS=col(['subdiv_name','sub division','subdivision']),cT=col(['tarrif','tariff']),
+          cM=col(['meter_status','meter status']),cF=col(['feeder_code','feeder code']),cV=col(['village code','village_code']),
+          cL=col(['contract_load','contract load']),cD=col(['division_name','division']);
+    const get=(c,i)=>c>=0?norm(X.cols[c][i]):'';
+    const Dc={div:[],sdn:[],tar:[],fdr:[],vcd:[],mt:[],ms:[]},I={};for(const k in Dc)I[k]=new Map();
+    const idx=(k,v)=>{let i=I[k].get(v);if(i===undefined){i=Dc[k].length;Dc[k].push(v);I[k].set(v,i);}return i;};
+    const n=X.n;const cn=[];const div=new Int32Array(n),sdn=new Int32Array(n),tar=new Int32Array(n),fdr=new Int32Array(n),vcd=new Int32Array(n),mt=new Int32Array(n),ms=new Int32Array(n),
+          rep=new Uint8Array(n),sdate=new Float64Array(n),load=new Float64Array(n);
+    const sdnCache=new Map();const miss={};const cmKeys=new Set(),cmExact=new Set();
+    let r=0,marked=0;
+    for(let i=0;i<n;i++){
+      const c=get(cC,i);if(!c)continue;
+      const s=get(cS,i),f=get(cF,i),v=get(cV,i);
+      let d=get(cD,i);
+      if(!d){const ck=s+'\u0001'+v+'\u0001'+f;d=sdnCache.get(ck);
+        if(d===undefined){d=sdnDiv[sdnKey(s)]||vDiv[v]||fDiv[f]||'';sdnCache.set(ck,d);}
+        if(!d){d=unk;miss[s||'(blank)']=(miss[s||'(blank)']||0)+1;}}
+      cn.push(c);cmExact.add(c);cmKeys.add(cnKey(c));
+      div[r]=idx('div',d);sdn[r]=idx('sdn',s);tar[r]=idx('tar',get(cT,i));fdr[r]=idx('fdr',f);vcd[r]=idx('vcd',v);
+      ms[r]=idx('ms',get(cM,i).toUpperCase());
+      if(cL>=0){const t=X.cols[cL][i];load[r]=t?(parseFloat(String(t).replace(/,/g,''))||0):0;}
+      const md=miDate.get(c);if(md!==undefined){rep[r]=1;sdate[r]=md;marked++;}
+      mt[r]=idx('mt',mtMap?(mtMap.get(cnKey(c))||mtNA):mtNA);
+      r++;
+    }
+    T.cm=null;
+    /* ---- reconciliation (MI Data check) ---- */
+    let matched=0,byKeyOnly=0,unmatched=0;const samples=[];
+    for(const c of miDate.keys()){
+      if(cmExact.has(c)){matched++;continue;}
+      if(cmKeys.has(cnKey(c))){byKeyOnly++;if(samples.length<12)samples.push(c+'  — would match if leading zeros were ignored');continue;}
+      unmatched++;if(samples.length<12)samples.push(c+'  — no such consumer in Consumer Master');
+    }
+    const miDated=[...miDate.values()].filter(Boolean).length;
+    const audit={rows:M.n,blank:miBlank,unique:miDate.size,uniqueKey:miKey.size,
+      cnCol:miCn>=0?M.hdr[miCn]:'(not found)',sdCol:miSd>=0?M.hdr[miSd]:'(not found)',noDate,
+      cmTotal:r,matched,byKeyOnly,unmatched,duplicateRows:M.n-miDate.size-miBlank,samples,markedReplaced:marked};
+    const sl=a=>a.slice(0,r);
+    const P={n:r,dicts:Dc,cn,div:sl(div),sdn:sl(sdn),tar:sl(tar),fdr:sl(fdr),vcd:sl(vcd),mt:sl(mt),ms:sl(ms),rep:sl(rep),sdate:sl(sdate),load:sl(load),
+      mtLoaded:!!mtMap,noLoad:cL<0,miCount:miDate.size,miDateCount:miDated,audit,miss,errs,
+      cmCols:X.hdr};
+    postMessage({type:'done',P},[P.div.buffer,P.sdn.buffer,P.tar.buffer,P.fdr.buffer,P.vcd.buffer,P.mt.buffer,P.ms.buffer,P.rep.buffer,P.sdate.buffer,P.load.buffer]);
+  };
 }
 
-async function fetchSheetText(cfg,onProgress){
-  /* 1) "Publish to web" link - the reliable one for websites (Google allows other sites to read it)
-     2) normal export link   3) gviz link (last: it can drop values in mixed-type columns) */
-  const urls=[
-    `https://docs.google.com/spreadsheets/d/${cfg.id}/pub?gid=${cfg.gid}&single=true&output=csv`,
-    `https://docs.google.com/spreadsheets/d/${cfg.id}/export?format=csv&gid=${cfg.gid}`,
-    `https://docs.google.com/spreadsheets/d/${cfg.id}/gviz/tq?tqx=out:csv&gid=${cfg.gid}`
-  ];
-  let lastErr=null;cfg.tried=[];
-  for(const u of urls){
-    try{
-      const res=await fetch(u,{cache:'no-store',redirect:'follow'});
-      if(!res.ok)throw new Error('HTTP '+res.status);
-      let text;
-      if(res.body&&res.body.getReader){
-        const rd=res.body.getReader();const dec=new TextDecoder('utf-8');const parts=[];let got=0;
-        for(;;){const{done,value}=await rd.read();if(done)break;got+=value.length;parts.push(dec.decode(value,{stream:true}));onProgress&&onProgress(got);}
-        parts.push(dec.decode());text=parts.join('');
-      }else text=await res.text();
-      /* a private sheet returns Google's sign-in page instead of CSV */
-      if(/^\s*<(!doctype|html)/i.test(text.slice(0,200)))throw new Error('NOT_SHARED');
-      return text;
-    }catch(e){lastErr=e;cfg.tried.push(u.split('/').slice(-1)[0].split('?')[0]+': '+(e&&e.message||e));console.warn('[Sheets]',cfg.label,u,e);}
+/* Build S.recs from the worker's compact result */
+function applySheetData(P){
+  const D=P.dicts,n=P.n,recs=new Array(n);
+  const catOf=D.tar.map(t=>category(t));
+  const dcache=new Map();
+  for(let i=0;i<n;i++){
+    const ti=P.tar[i];let sd=null;
+    if(P.rep[i]&&P.sdate[i]){const ms=P.sdate[i];sd=dcache.get(ms);if(!sd){sd=new Date(ms);dcache.set(ms,sd);}}
+    recs[i]={cn:P.cn[i],div:D.div[P.div[i]],sdn:D.sdn[P.sdn[i]],load:P.load[i],tarrif:D.tar[ti],cat:catOf[ti],
+      ms:D.ms[P.ms[i]],feeder:D.fdr[P.fdr[i]],vcode:D.vcd[P.vcd[i]],replaced:P.rep[i]===1,sdate:sd,mtype:D.mt[P.mt[i]],raw:null};
   }
-  throw lastErr||new Error('FETCH');
+  S.recs=recs;S.prebuilt=true;
+  S.mtLoaded=!!P.mtLoaded;S.mtTypes=S.mtLoaded?mtypeOrder(recs.filter(r=>!r.replaced).map(r=>r.mtype)):[];
+  S.miSet={size:P.miCount};S.miDate={size:P.miDateCount};S.miAudit=P.audit;
+  S.noLoad=!!P.noLoad;S.divMissSdn=new Map(Object.entries(P.miss||{}));
+  S.feederRef=Object.assign({},FEEDER_REF);S.fmUnknown=[];
+  S.cmCols=SD_COLS.filter(c=>!(S.noLoad&&c==='CONTRACT_LOAD'));
+  S.divs=[...new Set(recs.map(r=>r.div).filter(Boolean))].sort();
+  S.built=true;
 }
 
 let _sheetsLoading=false;
-async function loadFromSheets(){
+function loadFromSheets(){
   if(_sheetsLoading)return;_sheetsLoading=true;
   const ov=document.createElement('div');
   ov.style.cssText='position:fixed;inset:0;z-index:9999;background:rgba(255,255,255,.94);display:flex;flex-direction:column;gap:10px;align-items:center;justify-content:center;font:600 15px system-ui,sans-serif;color:#1f3a5f;text-align:center;padding:20px';
-  const lines={};
-  const paint=()=>{ov.innerHTML='<div class="spin" style="margin-bottom:6px"></div><div>Loading latest data from Google Sheets…</div>'+
+  const lines={};let head='Loading latest data from Google Sheets…';
+  const paint=()=>{ov.innerHTML='<div class="spin" style="margin-bottom:6px"></div><div>'+head+'</div>'+
       Object.keys(SHEETS).map(k=>`<div style="font-weight:500;font-size:13px;color:#4a5b6b">${SHEETS[k].label}: ${lines[k]||'waiting…'}</div>`).join('');};
   paint();document.body.appendChild(ov);
-  const mb=b=>(b/1048576).toFixed(1)+' MB';
-  const got={},errs={};
-  await Promise.all(Object.keys(SHEETS).map(async k=>{
-    const cfg=SHEETS[k];
-    try{
-      const text=await fetchSheetText(cfg,b=>{lines[k]=mb(b)+' downloaded';paint();});
-      lines[k]='reading…';paint();await new Promise(r=>setTimeout(r,10));
-      got[k]=parseCSV(text);
-      lines[k]='✓ '+got[k].length.toLocaleString('en-IN')+' rows';paint();
-    }catch(e){errs[k]=e;lines[k]='✗ could not load';paint();}
-  }));
+  const finish=()=>{ov.remove();_sheetsLoading=false;};
+  const showFail=errs=>{
+    const missing=Object.keys(SHEETS).filter(k=>SHEETS[k].required&&errs[k]!==undefined);
+    const list=missing.length?missing:Object.keys(SHEETS).filter(k=>SHEETS[k].required);
+    const why=list.map(k=>'<br>• <b>'+SHEETS[k].label+'</b>'+(/NOT_SHARED/.test(errs[k]||'')?' — sheet is not shared publicly':' — could not be reached')+'<span style="color:#888;font-size:11px"> ['+(errs[k]||'empty sheet')+']</span>').join('');
+    const p=$('uploadPanel');p.style.display='';p.classList.remove('collapsed');
+    let note=$('sheetsErr');
+    if(!note){note=document.createElement('div');note.id='sheetsErr';note.className='note';note.style.cssText='background:#fdf3f0;border-color:#e8c4bc;margin:0 0 12px';p.querySelector('.pbody').prepend(note);}
+    note.innerHTML='<b>Could not load from Google Sheets:</b> '+why+
+      '<br><br>Open this page from the website link (not from a file on the phone). Check that each sheet is published: <b>File → Share → Publish to web</b> → <b>Entire document</b> → <b>Publish</b>. Then reload this page. Or choose the Excel files below and click <b>Generate reports</b>.';
+  };
+  let w,url;
   try{
-    const missing=Object.keys(SHEETS).filter(k=>SHEETS[k].required&&(!got[k]||!got[k].length));
-    if(missing.length){
-      const why=missing.map(k=>'<br>• <b>'+SHEETS[k].label+'</b>'+(errs[k]&&errs[k].message==='NOT_SHARED'?' — sheet is not shared publicly':' — could not be reached')+'<span style="color:#888;font-size:11px"> ['+((SHEETS[k].tried||[]).join(' | ')||'')+']</span>').join('');
-      const p=$('uploadPanel');p.style.display='';p.classList.remove('collapsed');
-      let note=$('sheetsErr');
-      if(!note){note=document.createElement('div');note.id='sheetsErr';note.className='note';note.style.cssText='background:#fdf3f0;border-color:#e8c4bc;margin:0 0 12px';p.querySelector('.pbody').prepend(note);}
-      note.innerHTML='<b>Could not load from Google Sheets:</b> '+why+'<br><br>Fix: open each Google Sheet → <b>File → Share → Publish to web</b> → choose <b>Entire document</b> → <b>Publish</b>. Then reload this page. Or choose the Excel files below and click <b>Generate reports</b>.';
-      return;
-    }
-    S['_wb_cm']={__rows:got.cm};S['_name_cm']='Google Sheet';
-    S['_wb_mi']={__rows:got.mi};S['_name_mi']='Google Sheet';
-    if(got.mt&&got.mt.length){S['_wb_mt']={__rows:got.mt};S['_name_mt']='Google Sheet';}
-    else{S['_wb_mt']=null;S['_name_mt']=null;if(errs.mt)toast('Meter Type sheet could not be loaded — SM Requirement tab will be empty');}
-    ov.innerHTML='<div class="spin"></div><div>Building reports…</div>';
-    await new Promise(r=>setTimeout(r,20));
-    S.built=false;S._genErr=null;
-    checkReady();$('gen').disabled=false;$('gen').click();
-    for(let i=0;i<6000&&!S.built&&!S._genErr;i++)await new Promise(r=>setTimeout(r,100));
-    if(S.built){
+    const src='('+W_main.toString()+')();';
+    url=URL.createObjectURL(new Blob([src],{type:'application/javascript'}));
+    w=new Worker(url);
+  }catch(e){finish();showFail({cm:'Background worker blocked: '+(e&&e.message||e)});return;}
+  const cleanup=()=>{try{w.terminate();}catch(_e){}URL.revokeObjectURL(url);};
+  w.onerror=e=>{cleanup();finish();showFail({cm:'Worker error: '+(e&&e.message||'unknown')});};
+  w.onmessage=async ev=>{
+    const m=ev.data;
+    if(m.type==='progress'){lines[m.k]=m.msg;paint();return;}
+    cleanup();
+    if(m.type==='fail'){finish();showFail(m.errs||{});return;}
+    try{
+      const P=m.P;
+      if(P.errs&&P.errs.mt)toast('Meter Type sheet could not be loaded — SM Requirement tab will be empty');
+      head='Building reports…';paint();await new Promise(r=>setTimeout(r,30));
+      applySheetData(P);
       $('uploadPanel').style.display='none';
       const n=$('sheetsErr');if(n)n.remove();
+      $('report-area').style.display='block';
+      $('cm-count').style.display='inline-block';$('cm-count').textContent=S.recs.length.toLocaleString('en-IN')+' consumers';
+      $('mi-count').style.display='inline-block';$('mi-count').textContent=S.miSet.size.toLocaleString('en-IN')+' in MI Data';
+      buildNav();if(!VIEWS.some(v=>v.id===activeView))activeView='r1';renderNav();renderView();
       stampAsOf(new Date().toISOString());
-    }else{
-      $('uploadPanel').style.display='';
-    }
-  }finally{ov.remove();_sheetsLoading=false;}
+    }catch(e){console.error(e);showFail({cm:'Build error: '+(e&&e.message||e)});}
+    finally{finish();}
+  };
+  w.postMessage({sheets:SHEETS,sdnDiv:SDN_DIV,vDiv:Object.fromEntries(Object.entries(VILLAGE_REF).map(([k,v])=>[k,v.div||''])),
+    fDiv:Object.fromEntries(Object.entries(FEEDER_REF).map(([k,v])=>[k,v.div||''])),unk:UNK,mtNA:MT_NA});
 }
 if($('dl-bundle'))$('dl-bundle').style.display='none';
 if($('btn-reload'))$('btn-reload').onclick=loadFromSheets;
