@@ -198,9 +198,9 @@ main{flex:1;overflow-y:auto;padding:16px 22px 40px;min-width:0}
 .multibtn .cv{color:var(--ink-soft);font-size:11px}
 .multipanel{display:none;position:absolute;top:calc(100% + 3px);left:0;right:0;z-index:20;background:#fff;border:1px solid var(--line);border-radius:6px;box-shadow:0 6px 18px rgba(20,40,60,.14);max-height:220px;overflow-y:auto;padding:6px 8px}
 .multipanel.open{display:block}
-.multipanel .mopt{display:flex;align-items:center;gap:7px;font-size:12.5px;font-weight:500;color:var(--ink);padding:4px 6px;cursor:pointer;white-space:nowrap;border-radius:4px}
+.multipanel .mopt{display:flex;align-items:center;gap:8px;font-size:12.5px;font-weight:500;color:var(--ink);padding:4px 6px;cursor:pointer;white-space:nowrap;border-radius:4px}
 .multipanel .mopt:hover{background:var(--chip)}
-.multipanel .mopt input{margin:0;flex:0 0 auto;width:14px;height:14px;cursor:pointer}
+.multipanel .mopt input,.ctrl .multipanel .mopt input{margin:0;flex:0 0 auto;width:15px;height:15px;min-width:0;padding:0;cursor:pointer;accent-color:var(--brand)}
 table.rpt{border-collapse:collapse;width:100%;font-size:12px}
 table.rpt th,table.rpt td{border:1px solid #b9c6d0;padding:6px 8px;text-align:center}
 table.rpt th{background:var(--brand);color:#fff;font-weight:600;position:sticky;top:0;z-index:1}
@@ -273,6 +273,7 @@ table.rpt .pct{color:var(--warn);font-weight:600}
   .multibtn{padding:10px 9px;font-size:14px}
   .multipanel{max-height:54vh}
   .multipanel .mopt{padding:9px 6px;font-size:14px}
+  .multipanel .mopt input,.ctrl .multipanel .mopt input{width:18px;height:18px}
   .ctrl .dlrow{flex-wrap:wrap}
   .ctrl .dlrow .btn{flex:1 1 30%;padding:9px 8px}
   .mobhint{display:block;font-size:11.5px;color:var(--ink-soft);margin:0 0 7px;font-style:italic}
@@ -853,8 +854,10 @@ function renderNav(){
 function ctrlSelect(label,opts,val,onCh){const w=document.createElement('div');w.className='ctrl';const l=document.createElement('label');l.textContent=label;w.appendChild(l);const s=document.createElement('select');opts.forEach(o=>{const op=document.createElement('option');op.value=o.v;op.textContent=o.t;if(o.v===val)op.selected=true;s.appendChild(op);});s.onchange=()=>onCh(s.value);w.appendChild(s);return w;}
 function ctrlDate(label,val,onCh){const w=document.createElement('div');w.className='ctrl ctrl-date';const l=document.createElement('label');l.textContent=label;w.appendChild(l);const i=document.createElement('input');i.type='date';if(val)i.value=val;i.onchange=()=>onCh(i.value);w.appendChild(i);return w;}
 /* multi-select dropdown: a button showing the current selection; click to open a checkbox panel */
+/* the open list stays open while ticking several options (the report re-draws on each tick) */
+let _openMulti=null,_openMultiScroll=0;
 function ctrlMulti(label,opts,sel,onCh,allLabel){
-  const w=document.createElement('div');w.className='ctrl';
+  const key=activeView+'|'+label;const w=document.createElement('div');w.className='ctrl';
   const l=document.createElement('label');l.textContent=label;w.appendChild(l);
   const dd=document.createElement('div');dd.className='multidd';
   const btn=document.createElement('button');btn.type='button';btn.className='multibtn';
@@ -863,11 +866,16 @@ function ctrlMulti(label,opts,sel,onCh,allLabel){
   const panel=document.createElement('div');panel.className='multipanel';
   const all=document.createElement('label');all.className='mopt';
   const acb=document.createElement('input');acb.type='checkbox';acb.checked=sel.length===0;
-  acb.onchange=()=>onCh([]);all.appendChild(acb);all.appendChild(document.createTextNode(' (All)'));panel.appendChild(all);
-  opts.forEach(o=>{const ol=document.createElement('label');ol.className='mopt';const cb=document.createElement('input');cb.type='checkbox';cb.checked=sel.includes(o);cb.onchange=()=>{let n=sel.slice();if(cb.checked)n.push(o);else n=n.filter(x=>x!==o);onCh(n);};ol.appendChild(cb);ol.appendChild(document.createTextNode(' '+o));panel.appendChild(ol);});
-  btn.onclick=e=>{e.stopPropagation();const open=panel.classList.toggle('open');btn.classList.toggle('act',open);};
+  acb.onchange=()=>{_openMulti=key;_openMultiScroll=panel.scrollTop;onCh([]);};all.appendChild(acb);all.appendChild(document.createTextNode('(All)'));panel.appendChild(all);
+  opts.forEach(o=>{const ol=document.createElement('label');ol.className='mopt';const cb=document.createElement('input');cb.type='checkbox';cb.checked=sel.includes(o);cb.onchange=()=>{_openMulti=key;_openMultiScroll=panel.scrollTop;let n=sel.slice();if(cb.checked)n.push(o);else n=n.filter(x=>x!==o);onCh(n);};ol.appendChild(cb);ol.appendChild(document.createTextNode(o));panel.appendChild(ol);});
+  btn.onclick=e=>{e.stopPropagation();const open=panel.classList.toggle('open');btn.classList.toggle('act',open);_openMulti=open?key:null;};
   // close when clicking elsewhere
-  const closer=()=>{panel.classList.remove('open');btn.classList.remove('act');};
+  const closer=()=>{panel.classList.remove('open');btn.classList.remove('act');if(_openMulti===key)_openMulti=null;};
+  if(_openMulti===key){panel.classList.add('open');btn.classList.add('act');setTimeout(()=>{panel.scrollTop=_openMultiScroll;},0);}
+  /* Done button to close the list */
+  const done=document.createElement('button');done.type='button';done.className='btn primary';done.textContent='Done';
+  done.style.cssText='width:100%;margin-top:6px;padding:6px 8px;position:sticky;bottom:0';done.onclick=e=>{e.stopPropagation();closer();};
+  panel.appendChild(done);
   setTimeout(()=>document.addEventListener('click',closer,{once:true}),0);
   panel.onclick=e=>e.stopPropagation();
   dd.appendChild(btn);dd.appendChild(panel);w.appendChild(dd);return w;
