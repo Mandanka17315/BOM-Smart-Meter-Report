@@ -686,6 +686,12 @@ function dateWin(from,to){
   if(to){const t2=new Date(to);t2.setHours(23,59,59,999);t=t2.getTime();}
   return r=>{if(!r.replaced)return false;if(f===null&&t===null)return true;const d=r.sdate;if(!d)return false;const ms=d.getTime();return (f===null||ms>=f)&&(t===null||ms<=t);};
 }
+/* Report level, shared by every tab: 'SDN' = sub division rows with division totals,
+   'DIV' = one row per division (no sub division rows). */
+let LEVEL='SDN';
+const isDivLevel=()=>LEVEL==='DIV';
+/* Division level: rename "Sub-division" in titles and headings */
+const lvlTxt=t=>isDivLevel()&&typeof t==='string'?t.replace(/Sub-division/g,'Division'):t;
 function aggGroup(recs,divFilter,pass,add,fin){
   const want=divFilter==='ALL'?null:norm(divFilter).toUpperCase();
   const byDiv=new Map(),du=new Map();
@@ -702,12 +708,16 @@ function aggGroup(recs,divFilter,pass,add,fin){
   const divs=divFilter==='ALL'?S.divs:[divFilter];
   for(const dv of divs){const key=norm(dv).toUpperCase();if(done.has(key))continue;done.add(key);
     const m=byDiv.get(key);if(!m||!m.size)continue;
+    if(isDivLevel()){
+      if(divFilter==='ALL')rows.push({kind:'data',label:dv,cells:fin(sum([...m.values()]))});
+      continue;                                   // single division: only its total row (below)
+    }
     for(const sdn of [...m.keys()].sort())rows.push({kind:'data',label:sdn,cells:fin(m.get(sdn))});
     if(divFilter==='ALL')rows.push({kind:'subtotal',label:dv+' — Total',cells:fin(sum([...m.values()]))});
   }
   const all=[];for(const m of byDiv.values())for(const a of m.values())all.push(a);
   const g=sum(all);
-  rows.push({kind:divFilter==='ALL'?'grand':'subtotal',label:divFilter==='ALL'?'CIRCLE TOTAL':divFilter+' — Total',cells:fin(g)});
+  rows.push({kind:divFilter==='ALL'?'grand':'subtotal',label:divFilter==='ALL'?'CIRCLE TOTAL':(isDivLevel()?divFilter:divFilter+' — Total'),cells:fin(g)});
   return {rows,g};
 }
 const inc=(a,k)=>{a[k]=(a[k]||0)+1;};
@@ -740,9 +750,9 @@ function buildR7(recs,divFilter,from,to){
     a=>{const o={};for(const c of CATS)o[c]=a[c]||0;o['Total']=a['Total']||0;return o;});
   return {rows:R.rows,grand:R.g['Total']||0};
 }
-function buildR8(recs,divFilter,cats,mts,gt10){
+function buildR8(recs,divFilter,cats,mts,gt10,faulty){
   const cs=new Set(cats),ms=new Set(mts);
-  const R=aggGroup(recs,divFilter,r=>!r.replaced&&cs.has(r.cat)&&ms.has(r.mtype)&&(!gt10||r.load>10),
+  const R=aggGroup(recs,divFilter,r=>!r.replaced&&cs.has(r.cat)&&ms.has(r.mtype)&&(!gt10||r.load>10)&&(!faulty||r.ms==='F'),
     (a,r)=>{inc(a,r.cat+'\u0001'+r.mtype);inc(a,r.cat+'\u0001T');inc(a,'Total\u0001'+r.mtype);inc(a,'Total\u0001T');},
     a=>{const o={};for(const c of [...cats,'Total']){o[c]={};for(const m of mts)o[c][m]=a[c+'\u0001'+m]||0;o[c]['Total']=a[c+'\u0001T']||0;}return o;});
   const groups=cats.length>1?[...cats,'Total']:cats.slice();
@@ -766,6 +776,12 @@ function buildR5(recs,divFilter,slabFilter){
 /* Village summary: count of villages per slab, split by sub division.
    Built from the (already div/slab-filtered) village rows. */
 function buildVillageSummary(rows){
+  if(isDivLevel()){                 // Division level: one row per division
+    const divs=[...new Set(rows.map(r=>r.div))].sort();
+    const byDiv=divs.map(div=>{const sr=rows.filter(r=>r.div===div);const counts={};VSLABS.forEach(s=>counts[s]=sr.filter(r=>r.slab===s).length);return{div,sdn:'',counts,total:sr.length};});
+    const totals={};VSLABS.forEach(s=>totals[s]=rows.filter(r=>r.slab===s).length);
+    return {bySdn:byDiv,totals,grand:rows.length};
+  }
   const sdns=[...new Set(rows.map(r=>r.sdn))].sort();
   const bySdn=sdns.map(sdn=>{
     const sr=rows.filter(r=>r.sdn===sdn);const div=sr[0]?sr[0].div:'';
@@ -794,6 +810,12 @@ function buildR6(recs,divFilter,slabFilter,catFilter){
 /* Feeder summary: count of feeders per slab, split by sub division.
    Built from the (already filtered) feeder rows. */
 function buildFeederSummary(rows){
+  if(isDivLevel()){                 // Division level: one row per division
+    const divs=[...new Set(rows.map(r=>r.div))].sort();
+    const byDiv=divs.map(div=>{const sr=rows.filter(r=>r.div===div);const counts={};VSLABS.forEach(s=>counts[s]=sr.filter(r=>r.slab===s).length);return{div,sdn:'',counts,total:sr.length};});
+    const totals={};VSLABS.forEach(s=>totals[s]=rows.filter(r=>r.slab===s).length);
+    return {bySdn:byDiv,totals,grand:rows.length};
+  }
   const sdns=[...new Set(rows.map(r=>r.sdn))].sort();
   const bySdn=sdns.map(sdn=>{
     const sr=rows.filter(r=>r.sdn===sdn);const div=sr[0]?sr[0].div:'';
@@ -815,12 +837,15 @@ function feederCats(recs,divFilter){
    Pending = consumer in Consumer Master that is NOT in MI Data. Meter type comes from the Meter Type file.
    cats / mts = selected lists; empty list = all. Rows grouped: sub-division -> division subtotal -> circle total. */
 function r8Gt10(f){return f.rload==='GT10';}
+function r8Faulty(f){return f.rms==='F';}
 /* GT10 option: LTMD & NRGP+EVCS with contract load > 10 KW (same scope as the LTMD / NRGP+EVCS >10 KW tab) */
 function r8CatBase(f){return r8Gt10(f)?['LTMD','NRGP+EVCS']:CATS;}
 function r8Cats(f){const b=r8CatBase(f);return (f.rcats&&f.rcats.length)?b.filter(c=>f.rcats.includes(c)):b.slice();}
 function r8Mts(f){return (f.rmts&&f.rmts.length)?S.mtTypes.filter(m=>f.rmts.includes(m)):S.mtTypes.slice();}
 function scopeSub8(f){
   const b=[f.div==='ALL'?'All Divisions':f.div];
+  if(isDivLevel())b.push('Division level');
+  if(r8Faulty(f))b.push('Faulty meters only');
   if(r8Gt10(f))b.push('LTMD & NRGP+EVCS > 10 KW only');
   b.push('Category: '+((f.rcats&&f.rcats.length)?f.rcats.join(', '):'All'));
   b.push('Meter Type: '+((f.rmts&&f.rmts.length)?f.rmts.join(', '):'All'));
@@ -887,7 +912,8 @@ function renderView(){
   const f=F[activeView];if(!f.fcats)f.fcats=[];if(!f.rcats)f.rcats=[];if(!f.pcats)f.pcats=[];if(!f.rmts)f.rmts=[];if(!f.rload)f.rload='ALL';
   const ctrls=document.createElement('div');ctrls.className='controls';
   if(def.hasDiv)ctrls.appendChild(ctrlSelect('Division',[{v:'ALL',t:'All Divisions'},...S.divs.map(d=>({v:d,t:d}))],f.div,v=>{f.div=v;if(def.hasFeederCat)f.fcats=[];renderView();}));
-  if(def.hasReq){ctrls.appendChild(ctrlSelect('Contract Load',[{v:'ALL',t:'All connections'},{v:'GT10',t:'LTMD & NRGP+EVCS > 10 KW'}],f.rload,v=>{f.rload=v;if(v==='GT10')f.rcats=f.rcats.filter(c=>['LTMD','NRGP+EVCS'].includes(c));renderView();}));ctrls.appendChild(ctrlMulti('Category',r8CatBase(f),f.rcats,sel=>{f.rcats=sel;renderView();},'All categories'));ctrls.appendChild(ctrlMulti('Type of Meter',S.mtTypes,f.rmts,sel=>{f.rmts=sel;renderView();},'All meter types'));}
+  ctrls.appendChild(ctrlSelect('Level',[{v:'SDN',t:'Sub Division level'},{v:'DIV',t:'Division level'}],LEVEL,v=>{LEVEL=v;renderView();}));
+  if(def.hasReq){if(!f.rms)f.rms='ALL';ctrls.appendChild(ctrlSelect('Meter Status',[{v:'ALL',t:'All pending'},{v:'F',t:'Faulty meters only'}],f.rms,v=>{f.rms=v;renderView();}));ctrls.appendChild(ctrlSelect('Contract Load',[{v:'ALL',t:'All connections'},{v:'GT10',t:'LTMD & NRGP+EVCS > 10 KW'}],f.rload,v=>{f.rload=v;if(v==='GT10')f.rcats=f.rcats.filter(c=>['LTMD','NRGP+EVCS'].includes(c));renderView();}));ctrls.appendChild(ctrlMulti('Category',r8CatBase(f),f.rcats,sel=>{f.rcats=sel;renderView();},'All categories'));ctrls.appendChild(ctrlMulti('Type of Meter',S.mtTypes,f.rmts,sel=>{f.rmts=sel;renderView();},'All meter types'));}
   if(def.hasPCat)ctrls.appendChild(ctrlMulti('Category (for Pending list)',CATS,f.pcats,sel=>{f.pcats=sel;renderView();},'All categories'));
   if(def.hasSlab)ctrls.appendChild(ctrlSelect('Slab',[{v:'ALL',t:'All Slabs'},...VSLABS.map(s=>({v:s,t:s}))],f.slab,v=>{f.slab=v;renderView();}));
   if(def.hasFeederCat){const cats=feederCats(S.recs,f.div);ctrls.appendChild(ctrlMulti('Feeder Category',cats,f.fcats,sel=>{f.fcats=sel;renderView();}));}
@@ -909,12 +935,13 @@ function renderView(){
   p.appendChild(holder);
 }
 function dateNote(from,to){if(!from&&!to)return'';const ds=from?from.toLocaleDateString('en-GB'):'start',de=to?to.toLocaleDateString('en-GB'):'today';return`<div class="note">Date filter active (<b>${ds}</b> to <b>${de}</b>). <b>SM Installed (Total)</b> and <b>Pending</b> always count the whole MI Data, so Pending stays correct. The extra <b>Installed in Selected Period</b> column counts only meters whose MI survey date falls in this range; meters with no survey date in MI Data cannot appear in that column.</div>`;}
-function scopeSub(f){const b=[];b.push(f.div==='ALL'?'All Divisions':f.div);if(f.slab&&f.slab!=='ALL')b.push(f.slab.replace(/^\d+\.\s*/,''));if(f.fcats&&f.fcats.length)b.push('Cat: '+f.fcats.join(', '));return b.join(' · ');}
+function scopeSub(f){const b=[];b.push(f.div==='ALL'?'All Divisions':f.div);if(isDivLevel())b.push('Division level');if(f.slab&&f.slab!=='ALL')b.push(f.slab.replace(/^\d+\.\s*/,''));if(f.fcats&&f.fcats.length)b.push('Cat: '+f.fcats.join(', '));return b.join(' · ');}
 
 
 /* ================= HTML RENDERERS ================= */
 function reportHeading(t,s){return`<div class="rpt-head"><h3>${t}</h3><div class="meta">${s||''}</div></div>`;}
-function renderReportHTML(id,f,from,to){
+function renderReportHTML(id,f,from,to){return lvlTxt(renderReportHTML0(id,f,from,to));}
+function renderReportHTML0(id,f,from,to){
   if(id==='r1')return r1html(f,from,to);
   if(id==='r2')return r2html(f,from,to);
   if(id==='r4')return r4html(f,from,to);
@@ -967,9 +994,9 @@ function r5html(f){
   // ---- Summary: slab-wise village counts by sub division ----
   const sm=buildVillageSummary(d.rows);
   h+='<h4 style="margin:4px 0 8px;color:var(--brand-dk);font-size:13px">Summary — number of villages by slab</h4>';
-  h+='<div class="tablescroll" style="max-height:none;margin-bottom:18px"><table class="rpt"><thead><tr><th class="l">Division</th><th class="l">Sub Division</th>'+VSLABS.map(s=>`<th>${s.replace(/^\d+\.\s*/,'')}</th>`).join('')+'<th>Total Villages</th></tr></thead><tbody>';
-  sm.bySdn.forEach(r=>{h+=`<tr><td class="l">${r.div}</td><td class="l">${r.sdn}</td>`+VSLABS.map(s=>`<td>${r.counts[s]}</td>`).join('')+`<td>${r.total}</td></tr>`;});
-  h+=`<tr class="grandtotal"><td class="l" colspan="2">Total</td>`+VSLABS.map(s=>`<td>${sm.totals[s]}</td>`).join('')+`<td>${sm.grand}</td></tr>`;
+  h+='<div class="tablescroll" style="max-height:none;margin-bottom:18px"><table class="rpt"><thead><tr><th class="l">Division</th>'+(isDivLevel()?'':'<th class="l">Sub Division</th>')+VSLABS.map(s=>`<th>${s.replace(/^\d+\.\s*/,'')}</th>`).join('')+'<th>Total Villages</th></tr></thead><tbody>';
+  sm.bySdn.forEach(r=>{h+=`<tr><td class="l">${r.div}</td>`+(isDivLevel()?'':`<td class="l">${r.sdn}</td>`)+VSLABS.map(s=>`<td>${r.counts[s]}</td>`).join('')+`<td>${r.total}</td></tr>`;});
+  h+=`<tr class="grandtotal"><td class="l" colspan="${isDivLevel()?1:2}">Total</td>`+VSLABS.map(s=>`<td>${sm.totals[s]}</td>`).join('')+`<td>${sm.grand}</td></tr>`;
   h+='</tbody></table></div>';
   // ---- Detail ----
   h+='<h4 style="margin:4px 0 8px;color:var(--brand-dk);font-size:13px">Village detail</h4>';
@@ -989,9 +1016,9 @@ function r6html(f){
   // ---- Summary: slab-wise feeder counts by sub division ----
   const sm=buildFeederSummary(d.rows);
   h+='<h4 style="margin:4px 0 8px;color:var(--brand-dk);font-size:13px">Summary — number of feeders by slab</h4>';
-  h+='<div class="tablescroll" style="max-height:none;margin-bottom:18px"><table class="rpt"><thead><tr><th class="l">Division</th><th class="l">Sub Division</th>'+VSLABS.map(s=>`<th>${s.replace(/^\d+\.\s*/,'')}</th>`).join('')+'<th>Total Feeders</th></tr></thead><tbody>';
-  sm.bySdn.forEach(r=>{h+=`<tr><td class="l">${r.div}</td><td class="l">${r.sdn}</td>`+VSLABS.map(s=>`<td>${r.counts[s]}</td>`).join('')+`<td>${r.total}</td></tr>`;});
-  h+=`<tr class="grandtotal"><td class="l" colspan="2">Total</td>`+VSLABS.map(s=>`<td>${sm.totals[s]}</td>`).join('')+`<td>${sm.grand}</td></tr>`;
+  h+='<div class="tablescroll" style="max-height:none;margin-bottom:18px"><table class="rpt"><thead><tr><th class="l">Division</th>'+(isDivLevel()?'':'<th class="l">Sub Division</th>')+VSLABS.map(s=>`<th>${s.replace(/^\d+\.\s*/,'')}</th>`).join('')+'<th>Total Feeders</th></tr></thead><tbody>';
+  sm.bySdn.forEach(r=>{h+=`<tr><td class="l">${r.div}</td>`+(isDivLevel()?'':`<td class="l">${r.sdn}</td>`)+VSLABS.map(s=>`<td>${r.counts[s]}</td>`).join('')+`<td>${r.total}</td></tr>`;});
+  h+=`<tr class="grandtotal"><td class="l" colspan="${isDivLevel()?1:2}">Total</td>`+VSLABS.map(s=>`<td>${sm.totals[s]}</td>`).join('')+`<td>${sm.grand}</td></tr>`;
   h+='</tbody></table></div>';
   // ---- Detail ----
   h+='<h4 style="margin:4px 0 8px;color:var(--brand-dk);font-size:13px">Feeder detail</h4>';
@@ -1027,15 +1054,15 @@ function r8html(f){
   let h=reportHeading(R8_TITLE,scopeSub8(f));
   if(!S.mtLoaded)return h+'<div class="empty">'+R8_NOFILE+'</div>';
   if(S.noLoad&&r8Gt10(f))return h+'<div class="empty"><b>CONTRACT_LOAD column is missing in the Consumer Master Google Sheet.</b><br>Add the CONTRACT_LOAD column back to the sheet to see this report.</div>';
-  const d=buildR8(S.recs,f.div,r8Cats(f),r8Mts(f),r8Gt10(f));
-  h+='<div class="note">Pending = consumers in Consumer Master that are <b>not</b> present in MI Data. Meter type is looked up by Consumer No from the Meter Type file. Leave Category / Type of Meter unselected to include all.'+(r8Gt10(f)?' <b>Contract Load option:</b> only LTMD and NRGP+EVCS connections with contract load &gt; 10 KW are counted.':'')+'</div>';
-  const na=S.recs.filter(r=>!r.replaced&&r.mtype===MT_NA&&(f.div==='ALL'||eqDiv(r.div,f.div))&&r8Cats(f).includes(r.cat)&&(!r8Gt10(f)||r.load>10)).length;
+  const d=buildR8(S.recs,f.div,r8Cats(f),r8Mts(f),r8Gt10(f),r8Faulty(f));
+  h+='<div class="note">Pending = consumers in Consumer Master that are <b>not</b> present in MI Data. Meter type is looked up by Consumer No from the Meter Type file. Leave Category / Type of Meter unselected to include all.'+(r8Gt10(f)?' <b>Contract Load option:</b> only LTMD and NRGP+EVCS connections with contract load &gt; 10 KW are counted.':'')+(r8Faulty(f)?' <b>Meter Status option:</b> only consumers with a faulty meter (METER_STATUS = F) are counted.':'')+'</div>';
+  const na=S.recs.filter(r=>!r.replaced&&r.mtype===MT_NA&&(f.div==='ALL'||eqDiv(r.div,f.div))&&r8Cats(f).includes(r.cat)&&(!r8Gt10(f)||r.load>10)&&(!r8Faulty(f)||r.ms==='F')).length;
   if(na>0)h+=`<div class="note" style="background:#fdf3f0;border-color:#e8c4bc"><b>${na.toLocaleString()}</b> pending consumer(s) in this scope have no meter type in the Meter Type file and are shown under <b>${MT_NA}</b>.</div>`;
   /* Cross-check against the same scope on the other tabs, so a disagreement explains itself. */
   {
-    const inScope=S.recs.filter(r=>(f.div==='ALL'||eqDiv(r.div,f.div))&&r8CatBase(f).includes(r.cat)&&(!r8Gt10(f)||r.load>10));
+    const inScope=S.recs.filter(r=>(f.div==='ALL'||eqDiv(r.div,f.div))&&r8CatBase(f).includes(r.cat)&&(!r8Gt10(f)||r.load>10)&&(!r8Faulty(f)||r.ms==='F'));
     const truePending=inScope.filter(r=>!r.replaced).length;
-    const other=r8Gt10(f)?'LTMD / NRGP+EVCS >10 KW':'Overall (Div / Category)';
+    const other=r8Faulty(f)?(r8Gt10(f)?'LTMD / NRGP+EVCS >10 KW (faulty meters)':'Faulty Meter'):(r8Gt10(f)?'LTMD / NRGP+EVCS >10 KW':'Overall (Div / Category)');
     const narrowed=(f.rcats&&f.rcats.length)||(f.rmts&&f.rmts.length);
     if(truePending===d.grand){
       h+=`<div class="note" style="background:#f2faf6;border-color:#b8e0cb">Cross-check: <b>${d.grand.toLocaleString()}</b> pending here, and <b>${truePending.toLocaleString()}</b> pending for the same scope on the <b>${other}</b> tab — the two agree.</div>`;
@@ -1062,6 +1089,11 @@ const P=v=>v.toFixed(2)+'%';
 function fdstr(from,to){if(!from&&!to)return'';return' · Survey '+(from?from.toLocaleDateString('en-GB'):'start')+' to '+(to?to.toLocaleDateString('en-GB'):'today');}
 
 function reportAOA(id){
+  const R=reportAOA0(id);
+  if(R&&isDivLevel()){R.title=lvlTxt(R.title);if(R.header)R.header=R.header.map(row=>row.map(lvlTxt));}
+  return R;
+}
+function reportAOA0(id){
   const f=F[id]||{div:'ALL',cat:'ALL',slab:'ALL',from:'',to:''};
   const from=inputDate(f.from),to=inputDate(f.to);
   if(id==='r1')return aoaGroupedCat('Sub-division wise & Category wise — Consumers vs Smart Meters Installed',scopeSub(f)+fdstr(from,to),buildR1(S.recs,f.div,from,to));
@@ -1110,9 +1142,10 @@ function aoaR5(f){
 function aoaR5Summary(f){
   const d=buildR5(S.recs,f.div,f.slab);const sm=buildVillageSummary(d.rows);
   const slabH=VSLABS.map(s=>s.replace(/^\d+\.\s*/,''));
-  const body=sm.bySdn.map(r=>({cells:[r.div,r.sdn,...VSLABS.map(s=>r.counts[s]),r.total],kind:'data'}));
-  body.push({cells:['Total','',...VSLABS.map(s=>sm.totals[s]),sm.grand],kind:'grand'});
-  return {title:'Village Wise — Summary (villages by slab)',sub:scopeSub(f),header:[['Division','Sub Division',...slabH,'Total Villages']],body,ncol:2+VSLABS.length+1};
+  const dl=isDivLevel();
+  const body=sm.bySdn.map(r=>({cells:dl?[r.div,...VSLABS.map(s=>r.counts[s]),r.total]:[r.div,r.sdn,...VSLABS.map(s=>r.counts[s]),r.total],kind:'data'}));
+  body.push({cells:dl?['Total',...VSLABS.map(s=>sm.totals[s]),sm.grand]:['Total','',...VSLABS.map(s=>sm.totals[s]),sm.grand],kind:'grand'});
+  return {title:'Village Wise — Summary (villages by slab)',sub:scopeSub(f),header:[dl?['Division',...slabH,'Total Villages']:['Division','Sub Division',...slabH,'Total Villages']],body,ncol:(dl?1:2)+VSLABS.length+1};
 }
 function aoaR6(f){
   const d=buildR6(S.recs,f.div,f.slab,f.fcats);
@@ -1124,9 +1157,10 @@ function aoaR6(f){
 function aoaR6Summary(f){
   const d=buildR6(S.recs,f.div,f.slab,f.fcats);const sm=buildFeederSummary(d.rows);
   const slabH=VSLABS.map(s=>s.replace(/^\d+\.\s*/,''));
-  const body=sm.bySdn.map(r=>({cells:[r.div,r.sdn,...VSLABS.map(s=>r.counts[s]),r.total],kind:'data'}));
-  body.push({cells:['Total','',...VSLABS.map(s=>sm.totals[s]),sm.grand],kind:'grand'});
-  return {title:'Feeder Wise — Summary (feeders by slab)',sub:scopeSub(f),header:[['Division','Sub Division',...slabH,'Total Feeders']],body,ncol:2+VSLABS.length+1};
+  const dl=isDivLevel();
+  const body=sm.bySdn.map(r=>({cells:dl?[r.div,...VSLABS.map(s=>r.counts[s]),r.total]:[r.div,r.sdn,...VSLABS.map(s=>r.counts[s]),r.total],kind:'data'}));
+  body.push({cells:dl?['Total',...VSLABS.map(s=>sm.totals[s]),sm.grand]:['Total','',...VSLABS.map(s=>sm.totals[s]),sm.grand],kind:'grand'});
+  return {title:'Feeder Wise — Summary (feeders by slab)',sub:scopeSub(f),header:[dl?['Division',...slabH,'Total Feeders']:['Division','Sub Division',...slabH,'Total Feeders']],body,ncol:(dl?1:2)+VSLABS.length+1};
 }
 function aoaR7(f,from,to){
   const d=buildR7(S.recs,f.div,from,to);
@@ -1136,7 +1170,7 @@ function aoaR7(f,from,to){
 }
 function aoaR8(f){
   if(!S.mtLoaded)return null;
-  const d=buildR8(S.recs,f.div,r8Cats(f),r8Mts(f),r8Gt10(f));
+  const d=buildR8(S.recs,f.div,r8Cats(f),r8Mts(f),r8Gt10(f),r8Faulty(f));
   const k=d.subs.length;
   const h1=['Sub-division'],h2=[''];
   d.groups.forEach(g=>{h1.push(g==='Total'?'Total Pending':g);for(let i=1;i<k;i++)h1.push('');d.subs.forEach(m=>h2.push(m));});
@@ -1250,7 +1284,7 @@ function pendingRecs(id){
   if(id==='r1'&&f.pcats&&f.pcats.length)list=list.filter(r=>f.pcats.includes(r.cat));   // category-wise pending list
   if(id==='r2')list=list.filter(r=>r.ms==='F');                       // faulty only
   if(id==='r4')list=list.filter(r=>r.load>10&&(r.cat==='LTMD'||r.cat==='NRGP+EVCS'));
-  if(id==='r8'){const c8=r8Cats(f),m8=r8Mts(f),g8=r8Gt10(f);list=list.filter(r=>c8.includes(r.cat)&&m8.includes(r.mtype)&&(!g8||r.load>10));}
+  if(id==='r8'){const c8=r8Cats(f),m8=r8Mts(f),g8=r8Gt10(f),f8=r8Faulty(f);list=list.filter(r=>c8.includes(r.cat)&&m8.includes(r.mtype)&&(!g8||r.load>10)&&(!f8||r.ms==='F'));}
   if(id==='r5'){                                                        // village scope: slab filter
     if(f.slab&&f.slab!=='ALL'){const vslab=villageSlabMap();list=list.filter(r=>vslab[r.vcode]===f.slab);}
     list=list.filter(r=>{const ref=VILLAGE_REF[r.vcode];return ref&&ref.name&&ref.name!==UNK;});
@@ -1408,6 +1442,10 @@ $('dl-bundle').onclick=exportBundle;
 
 /* ===== Division-wise PowerPoint Export - ALL REPORTS ===== */
 async function exportDivisionWisePptx(){
+  const _lv=LEVEL;LEVEL='SDN';
+  try{return await exportDivisionWisePptx0();}finally{LEVEL=_lv;}
+}
+async function exportDivisionWisePptx0(){
   if(!S.recs||!S.recs.length){toast('Generate reports first');return;}
   if(typeof PptxGenJS !== 'function'){
     toast('PowerPoint engine is not loaded. Please reopen the updated HTML file.');
